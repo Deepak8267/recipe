@@ -29,7 +29,11 @@ window.WORLD_RECIPES_ADMIN_CONFIG = {
 
 - Admin login with Supabase Auth
 - Create countries automatically
-- Upload recipe title, country, region, time, servings, image URL, tags, ingredients, and steps
+- Upload recipe title, country, region, time, servings, image file or image URL, tags, ingredients, and steps
 - Publish or save recipe as unpublished
 
 Only users listed in the `admins` table can upload recipe content.
+
+## Image Uploads
+
+The SQL setup creates a public Supabase Storage bucket named `recipe-images`. Admin users can upload images into that bucket from this panel, and the mobile app reads the public image URL saved on each recipe.

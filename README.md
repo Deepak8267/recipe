@@ -27,7 +27,7 @@ The mobile app itself is published through the Apple App Store and Google Play S
 
 ## Admin Panel
 
-The `admin/` folder contains a static recipe upload panel that can be hosted on Hostinger. It uses Supabase Auth for login and Supabase REST APIs for creating countries, recipes, ingredients, and steps.
+The `admin/` folder contains a static recipe upload panel that can be hosted on Hostinger. It uses Supabase Auth for login, Supabase REST APIs for creating countries, recipes, ingredients, and steps, and Supabase Storage for recipe image uploads.
 
 Before hosting it, add your Supabase URL and anon key in `admin/config.js`, then run the SQL in `docs/supabase-schema.sql` and add your admin user to the `admins` table.
 

@@ -20,6 +20,7 @@ const elements = {
   difficultyInput: document.querySelector("#difficultyInput"),
   timeInput: document.querySelector("#timeInput"),
   servingsInput: document.querySelector("#servingsInput"),
+  imageFileInput: document.querySelector("#imageFileInput"),
   imageInput: document.querySelector("#imageInput"),
   tagsInput: document.querySelector("#tagsInput"),
   ingredientsInput: document.querySelector("#ingredientsInput"),
@@ -92,8 +93,10 @@ async function handleSaveRecipe() {
       throw new Error("Add at least one ingredient and one cooking step.");
     }
 
+    setStatus(elements.recipeStatus, "Uploading recipe...", "");
     const country = await findOrCreateCountry(elements.countryInput.value.trim());
-    const recipe = await createRecipe(country.id);
+    const imageUrl = await getRecipeImageUrl();
+    const recipe = await createRecipe(country.id, imageUrl);
     await createRecipeLines("recipe_ingredients", recipe.id, ingredients);
     await createRecipeLines("recipe_steps", recipe.id, steps);
 
@@ -130,7 +133,41 @@ async function findOrCreateCountry(countryName) {
   return created[0];
 }
 
-async function createRecipe(countryId) {
+async function getRecipeImageUrl() {
+  const imageFile = elements.imageFileInput.files[0];
+
+  if (!imageFile) {
+    return elements.imageInput.value.trim();
+  }
+
+  if (!imageFile.type.startsWith("image/")) {
+    throw new Error("Choose a valid image file.");
+  }
+
+  const filePath = `${Date.now()}-${slugify(imageFile.name)}`;
+  const response = await fetch(
+    `${config.supabaseUrl}/storage/v1/object/recipe-images/${filePath}`,
+    {
+      method: "POST",
+      headers: {
+        apikey: config.supabaseAnonKey,
+        Authorization: `Bearer ${state.accessToken}`,
+        "Content-Type": imageFile.type,
+        "x-upsert": "false"
+      },
+      body: imageFile
+    }
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Image upload failed with status ${response.status}`);
+  }
+
+  return `${config.supabaseUrl}/storage/v1/object/public/recipe-images/${filePath}`;
+}
+
+async function createRecipe(countryId, imageUrl) {
   const tags = elements.tagsInput.value
     .split(",")
     .map((tag) => tag.trim())
@@ -147,7 +184,7 @@ async function createRecipe(countryId) {
       difficulty: elements.difficultyInput.value,
       time_minutes: Number(elements.timeInput.value),
       servings: Number(elements.servingsInput.value),
-      image_url: elements.imageInput.value.trim(),
+      image_url: imageUrl,
       tags,
       is_published: elements.publishedInput.checked
     }
@@ -204,6 +241,13 @@ function getLines(value) {
     .filter(Boolean);
 }
 
+function slugify(value) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9.]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 function setStatus(element, message, type = "") {
   element.textContent = message;
   element.classList.remove("success", "error");
@@ -219,6 +263,7 @@ function clearRecipeForm() {
   elements.regionInput.value = "";
   elements.timeInput.value = "30";
   elements.servingsInput.value = "2";
+  elements.imageFileInput.value = "";
   elements.imageInput.value = "";
   elements.tagsInput.value = "";
   elements.ingredientsInput.value = "";

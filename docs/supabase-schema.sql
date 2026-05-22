@@ -54,6 +54,10 @@ create table admins (
   created_at timestamptz not null default now()
 );
 
+insert into storage.buckets (id, name, public)
+values ('recipe-images', 'recipe-images', true)
+on conflict (id) do update set public = true;
+
 alter table countries enable row level security;
 alter table recipes enable row level security;
 alter table recipe_ingredients enable row level security;
@@ -164,3 +168,20 @@ create policy "Users can update own profile"
 create policy "Admins can read admin list"
   on admins for select
   using (is_admin());
+
+create policy "Recipe images are public"
+  on storage.objects for select
+  using (bucket_id = 'recipe-images');
+
+create policy "Admins can upload recipe images"
+  on storage.objects for insert
+  with check (bucket_id = 'recipe-images' and is_admin());
+
+create policy "Admins can update recipe images"
+  on storage.objects for update
+  using (bucket_id = 'recipe-images' and is_admin())
+  with check (bucket_id = 'recipe-images' and is_admin());
+
+create policy "Admins can delete recipe images"
+  on storage.objects for delete
+  using (bucket_id = 'recipe-images' and is_admin());

@@ -62,12 +62,14 @@ When the two Expo public keys are empty, the app automatically uses sample recip
 
 ## GitHub
 
-This folder is initialized as a local Git repository. To push it to GitHub, create an empty GitHub repository, then run:
+This folder is initialized as a local Git repository and connected to:
 
 ```bash
-git remote add origin YOUR_GITHUB_REPO_URL
-git add .
-git commit -m "Initial recipe app"
-git branch -M main
-git push -u origin main
+https://github.com/Deepak8267/recipe.git
+```
+
+To push future commits:
+
+```bash
+git push
 ```

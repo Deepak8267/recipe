@@ -9,6 +9,7 @@ A cross-platform recipe app for iOS and Android built with React Native Expo.
 - Filter recipes by country
 - Open a recipe detail view with image, ingredients, and cooking steps
 - Create account, login, logout, and edit profile name
+- Save favorite recipes to the user profile
 - Local recipe data that can later move into Supabase
 
 ## Recommended Full-Stack Setup

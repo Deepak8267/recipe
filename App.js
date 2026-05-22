@@ -12,6 +12,11 @@ import {
   View
 } from "react-native";
 import { signIn, signUp, updateProfile } from "./src/services/authService";
+import {
+  getFavoriteIds,
+  removeFavorite,
+  saveFavorite
+} from "./src/services/favoriteService";
 import { getRecipes } from "./src/services/recipeService";
 
 export default function App() {
@@ -19,6 +24,8 @@ export default function App() {
   const [recipeSource, setRecipeSource] = useState("local");
   const [recipeError, setRecipeError] = useState(null);
   const [session, setSession] = useState(null);
+  const [favoriteIds, setFavoriteIds] = useState([]);
+  const [favoriteError, setFavoriteError] = useState(null);
   const [currentView, setCurrentView] = useState("recipes");
   const [selectedCountry, setSelectedCountry] = useState("All");
   const [query, setQuery] = useState("");
@@ -41,6 +48,32 @@ export default function App() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    if (!session) {
+      setFavoriteIds([]);
+      return undefined;
+    }
+
+    getFavoriteIds(session)
+      .then((ids) => {
+        if (mounted) {
+          setFavoriteIds(ids);
+          setFavoriteError(null);
+        }
+      })
+      .catch((error) => {
+        if (mounted) {
+          setFavoriteError(error.message);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [session]);
 
   const countries = useMemo(
     () => ["All", ...new Set(recipes.map((recipe) => recipe.country))],
@@ -74,8 +107,40 @@ export default function App() {
 
   function handleLogout() {
     setSession(null);
+    setFavoriteIds([]);
     setCurrentView("recipes");
   }
+
+  async function toggleFavorite(recipeId) {
+    if (!session) {
+      setCurrentView("profile");
+      return;
+    }
+
+    const isSaved = favoriteIds.includes(recipeId);
+    const nextFavoriteIds = isSaved
+      ? favoriteIds.filter((id) => id !== recipeId)
+      : [...favoriteIds, recipeId];
+
+    setFavoriteIds(nextFavoriteIds);
+    setFavoriteError(null);
+
+    try {
+      if (isSaved) {
+        await removeFavorite(session, recipeId);
+      } else {
+        await saveFavorite(session, recipeId);
+      }
+    } catch (error) {
+      setFavoriteIds(favoriteIds);
+      setFavoriteError(error.message);
+    }
+  }
+
+  const savedRecipes = useMemo(
+    () => recipes.filter((recipe) => favoriteIds.includes(recipe.id)),
+    [favoriteIds, recipes]
+  );
 
   if (currentView === "profile") {
     return (
@@ -89,7 +154,9 @@ export default function App() {
           />
           {session ? (
             <ProfileScreen
+              favoriteError={favoriteError}
               session={session}
+              savedRecipes={savedRecipes}
               onLogout={handleLogout}
               onSessionChange={setSession}
             />
@@ -125,6 +192,27 @@ export default function App() {
                 </View>
               ))}
             </View>
+            <Pressable
+              onPress={() => toggleFavorite(activeRecipe.id)}
+              style={[
+                styles.favoriteButton,
+                favoriteIds.includes(activeRecipe.id) && styles.favoriteButtonSaved
+              ]}
+            >
+              <Text
+                style={[
+                  styles.favoriteButtonText,
+                  favoriteIds.includes(activeRecipe.id) &&
+                    styles.favoriteButtonTextSaved
+                ]}
+              >
+                {favoriteIds.includes(activeRecipe.id) ? "Saved" : "Save recipe"}
+              </Text>
+            </Pressable>
+            {!session ? (
+              <Text style={styles.sourceText}>Login first to save this recipe.</Text>
+            ) : null}
+            {favoriteError ? <Text style={styles.errorText}>{favoriteError}</Text> : null}
           </View>
 
           <RecipeSection title="Ingredients" items={activeRecipe.ingredients} />
@@ -155,6 +243,7 @@ export default function App() {
               : "Using sample recipes until Supabase keys are added"}
           </Text>
           {recipeError ? <Text style={styles.errorText}>{recipeError}</Text> : null}
+          {favoriteError ? <Text style={styles.errorText}>{favoriteError}</Text> : null}
         </View>
 
         <TextInput
@@ -193,7 +282,12 @@ export default function App() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.recipeList}
           renderItem={({ item }) => (
-            <RecipeCard recipe={item} onPress={() => setActiveRecipe(item)} />
+            <RecipeCard
+              recipe={item}
+              saved={favoriteIds.includes(item.id)}
+              onPress={() => setActiveRecipe(item)}
+              onToggleFavorite={() => toggleFavorite(item.id)}
+            />
           )}
           ListEmptyComponent={
             <View style={styles.emptyState}>
@@ -339,7 +433,13 @@ function AuthScreen({ onSessionChange }) {
   );
 }
 
-function ProfileScreen({ session, onLogout, onSessionChange }) {
+function ProfileScreen({
+  favoriteError,
+  session,
+  savedRecipes,
+  onLogout,
+  onSessionChange
+}) {
   const [fullName, setFullName] = useState(session.user.fullName);
   const [status, setStatus] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -369,6 +469,7 @@ function ProfileScreen({ session, onLogout, onSessionChange }) {
           ? "Account connected with Supabase"
           : "Demo account until Supabase Auth is connected"}
       </Text>
+      {favoriteError ? <Text style={styles.errorText}>{favoriteError}</Text> : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Account Details</Text>
@@ -397,11 +498,27 @@ function ProfileScreen({ session, onLogout, onSessionChange }) {
           <Text style={styles.secondaryButtonText}>Logout</Text>
         </Pressable>
       </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Saved Recipes</Text>
+        {savedRecipes.length ? (
+          savedRecipes.map((recipe) => (
+            <View key={recipe.id} style={styles.savedRecipeRow}>
+              <Text style={styles.savedRecipeTitle}>{recipe.title}</Text>
+              <Text style={styles.savedRecipeMeta}>
+                {recipe.country} - {recipe.timeMinutes} min
+              </Text>
+            </View>
+          ))
+        ) : (
+          <Text style={styles.emptyText}>Saved recipes will appear here.</Text>
+        )}
+      </View>
     </View>
   );
 }
 
-function RecipeCard({ recipe, onPress }) {
+function RecipeCard({ recipe, saved, onPress, onToggleFavorite }) {
   return (
     <Pressable style={styles.card} onPress={onPress}>
       <Image source={{ uri: recipe.image }} style={styles.cardImage} />
@@ -418,6 +535,22 @@ function RecipeCard({ recipe, onPress }) {
             </View>
           ))}
         </View>
+        <Pressable
+          onPress={(event) => {
+            event.stopPropagation();
+            onToggleFavorite();
+          }}
+          style={[styles.favoriteButton, saved && styles.favoriteButtonSaved]}
+        >
+          <Text
+            style={[
+              styles.favoriteButtonText,
+              saved && styles.favoriteButtonTextSaved
+            ]}
+          >
+            {saved ? "Saved" : "Save"}
+          </Text>
+        </Pressable>
       </View>
     </Pressable>
   );
@@ -588,6 +721,29 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "900"
   },
+  favoriteButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "#ffffff",
+    borderColor: "#b4512b",
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 14,
+    minWidth: 92,
+    paddingHorizontal: 13,
+    paddingVertical: 9
+  },
+  favoriteButtonSaved: {
+    backgroundColor: "#b4512b"
+  },
+  favoriteButtonText: {
+    color: "#b4512b",
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  favoriteButtonTextSaved: {
+    color: "#ffffff"
+  },
   profileContainer: {
     paddingBottom: 28,
     paddingTop: 22
@@ -652,6 +808,21 @@ const styles = StyleSheet.create({
     color: "#6f6258",
     fontSize: 14,
     marginTop: 5
+  },
+  savedRecipeRow: {
+    borderBottomColor: "#f3e5d7",
+    borderBottomWidth: 1,
+    paddingVertical: 10
+  },
+  savedRecipeTitle: {
+    color: "#251a13",
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  savedRecipeMeta: {
+    color: "#6f6258",
+    fontSize: 13,
+    marginTop: 3
   },
   tagRow: {
     flexDirection: "row",

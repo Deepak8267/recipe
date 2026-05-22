@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>World Recipes Admin</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="topbar">
+        <div>
+          <p class="kicker">World Recipes Admin</p>
+          <h1>Upload recipes</h1>
+        </div>
+        <button id="logoutButton" class="secondary hidden" type="button">Logout</button>
+      </section>
+
+      <section id="setupPanel" class="panel">
+        <h2>Supabase setup</h2>
+        <p>
+          Add your Supabase URL and anon key in <code>admin/config.js</code>, then
+          host this folder on Hostinger.
+        </p>
+      </section>
+
+      <section id="loginPanel" class="panel">
+        <h2>Admin login</h2>
+        <label>
+          Email
+          <input id="emailInput" type="email" autocomplete="email" />
+        </label>
+        <label>
+          Password
+          <input id="passwordInput" type="password" autocomplete="current-password" />
+        </label>
+        <button id="loginButton" class="primary" type="button">Login</button>
+        <p id="loginStatus" class="status"></p>
+      </section>
+
+      <section id="recipePanel" class="panel hidden">
+        <div class="panelHeader">
+          <div>
+            <h2>New recipe</h2>
+            <p id="sessionText" class="muted"></p>
+          </div>
+          <label class="publishToggle">
+            <input id="publishedInput" type="checkbox" checked />
+            Publish
+          </label>
+        </div>
+
+        <div class="grid">
+          <label>
+            Recipe title
+            <input id="titleInput" type="text" placeholder="Butter Chicken" />
+          </label>
+          <label>
+            Country
+            <input id="countryInput" type="text" placeholder="India" />
+          </label>
+          <label>
+            Region
+            <input id="regionInput" type="text" placeholder="North India" />
+          </label>
+          <label>
+            Difficulty
+            <select id="difficultyInput">
+              <option>Easy</option>
+              <option selected>Medium</option>
+              <option>Hard</option>
+            </select>
+          </label>
+          <label>
+            Time minutes
+            <input id="timeInput" type="number" min="1" value="30" />
+          </label>
+          <label>
+            Servings
+            <input id="servingsInput" type="number" min="1" value="2" />
+          </label>
+        </div>
+
+        <label>
+          Image URL
+          <input id="imageInput" type="url" placeholder="https://..." />
+        </label>
+
+        <label>
+          Tags, comma separated
+          <input id="tagsInput" type="text" placeholder="Chicken, Dinner, Spicy" />
+        </label>
+
+        <label>
+          Ingredients, one per line
+          <textarea id="ingredientsInput" rows="8"></textarea>
+        </label>
+
+        <label>
+          Cooking steps, one per line
+          <textarea id="stepsInput" rows="8"></textarea>
+        </label>
+
+        <button id="saveButton" class="primary" type="button">Save recipe</button>
+        <p id="recipeStatus" class="status"></p>
+      </section>
+    </main>
+
+    <script src="./config.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

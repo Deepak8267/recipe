@@ -25,6 +25,12 @@ A cross-platform recipe app for iOS and Android built with React Native Expo.
 
 The mobile app itself is published through the Apple App Store and Google Play Store. Hostinger is best used for the admin website where recipes are uploaded and managed.
 
+## Admin Panel
+
+The `admin/` folder contains a static recipe upload panel that can be hosted on Hostinger. It uses Supabase Auth for login and Supabase REST APIs for creating countries, recipes, ingredients, and steps.
+
+Before hosting it, add your Supabase URL and anon key in `admin/config.js`, then run the SQL in `docs/supabase-schema.sql` and add your admin user to the `admins` table.
+
 ## Run Locally
 
 Install dependencies:

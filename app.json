@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "World Recipes",
+    "slug": "world-recipes",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#fff8f0"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.worldrecipes.app"
+    },
+    "android": {
+      "package": "com.worldrecipes.app"
+    }
+  }
+}

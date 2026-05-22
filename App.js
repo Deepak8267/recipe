@@ -11,12 +11,15 @@ import {
   TextInput,
   View
 } from "react-native";
+import { signIn, signUp, updateProfile } from "./src/services/authService";
 import { getRecipes } from "./src/services/recipeService";
 
 export default function App() {
   const [recipes, setRecipes] = useState([]);
   const [recipeSource, setRecipeSource] = useState("local");
   const [recipeError, setRecipeError] = useState(null);
+  const [session, setSession] = useState(null);
+  const [currentView, setCurrentView] = useState("recipes");
   const [selectedCountry, setSelectedCountry] = useState("All");
   const [query, setQuery] = useState("");
   const [activeRecipe, setActiveRecipe] = useState(null);
@@ -64,6 +67,40 @@ export default function App() {
     });
   }, [query, recipes, selectedCountry]);
 
+  function changeView(view) {
+    setActiveRecipe(null);
+    setCurrentView(view);
+  }
+
+  function handleLogout() {
+    setSession(null);
+    setCurrentView("recipes");
+  }
+
+  if (currentView === "profile") {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="dark" />
+        <ScrollView style={styles.screen} showsVerticalScrollIndicator={false}>
+          <AppTabs
+            currentView={currentView}
+            onChange={changeView}
+            signedIn={Boolean(session)}
+          />
+          {session ? (
+            <ProfileScreen
+              session={session}
+              onLogout={handleLogout}
+              onSessionChange={setSession}
+            />
+          ) : (
+            <AuthScreen onSessionChange={setSession} />
+          )}
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   if (activeRecipe) {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -101,6 +138,11 @@ export default function App() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
       <View style={styles.screen}>
+        <AppTabs
+          currentView={currentView}
+          onChange={changeView}
+          signedIn={Boolean(session)}
+        />
         <View style={styles.header}>
           <Text style={styles.kicker}>World Recipes</Text>
           <Text style={styles.title}>Cook dishes from different countries</Text>
@@ -167,6 +209,198 @@ export default function App() {
   );
 }
 
+function AppTabs({ currentView, onChange, signedIn }) {
+  return (
+    <View style={styles.tabs}>
+      <Pressable
+        onPress={() => onChange("recipes")}
+        style={[styles.tabButton, currentView === "recipes" && styles.tabButtonActive]}
+      >
+        <Text
+          style={[
+            styles.tabButtonText,
+            currentView === "recipes" && styles.tabButtonTextActive
+          ]}
+        >
+          Recipes
+        </Text>
+      </Pressable>
+      <Pressable
+        onPress={() => onChange("profile")}
+        style={[styles.tabButton, currentView === "profile" && styles.tabButtonActive]}
+      >
+        <Text
+          style={[
+            styles.tabButtonText,
+            currentView === "profile" && styles.tabButtonTextActive
+          ]}
+        >
+          {signedIn ? "Profile" : "Login"}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function AuthScreen({ onSessionChange }) {
+  const [mode, setMode] = useState("login");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [status, setStatus] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSignup = mode === "signup";
+
+  async function handleSubmit() {
+    setIsSubmitting(true);
+    setStatus("");
+
+    try {
+      const nextSession = isSignup
+        ? await signUp({ email, password, fullName })
+        : await signIn({ email, password });
+
+      onSessionChange(nextSession);
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <View style={styles.authContainer}>
+      <Text style={styles.kicker}>{isSignup ? "Create Account" : "Welcome Back"}</Text>
+      <Text style={styles.title}>
+        {isSignup ? "Start your recipe profile" : "Log in to your recipe profile"}
+      </Text>
+      <Text style={styles.subtitle}>
+        Use demo login now, then connect real Supabase Auth by adding your keys.
+      </Text>
+
+      <View style={styles.authModeRow}>
+        <Pressable
+          onPress={() => setMode("login")}
+          style={[styles.authModeButton, !isSignup && styles.authModeButtonActive]}
+        >
+          <Text style={[styles.authModeText, !isSignup && styles.authModeTextActive]}>
+            Login
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => setMode("signup")}
+          style={[styles.authModeButton, isSignup && styles.authModeButtonActive]}
+        >
+          <Text style={[styles.authModeText, isSignup && styles.authModeTextActive]}>
+            Create
+          </Text>
+        </Pressable>
+      </View>
+
+      {isSignup ? (
+        <TextInput
+          value={fullName}
+          onChangeText={setFullName}
+          placeholder="Full name"
+          placeholderTextColor="#8b7d70"
+          style={styles.formInput}
+        />
+      ) : null}
+      <TextInput
+        value={email}
+        onChangeText={setEmail}
+        autoCapitalize="none"
+        keyboardType="email-address"
+        placeholder="Email address"
+        placeholderTextColor="#8b7d70"
+        style={styles.formInput}
+      />
+      <TextInput
+        value={password}
+        onChangeText={setPassword}
+        placeholder="Password"
+        placeholderTextColor="#8b7d70"
+        secureTextEntry
+        style={styles.formInput}
+      />
+
+      {status ? <Text style={styles.errorText}>{status}</Text> : null}
+
+      <Pressable
+        onPress={handleSubmit}
+        disabled={isSubmitting}
+        style={[styles.primaryButton, isSubmitting && styles.primaryButtonDisabled]}
+      >
+        <Text style={styles.primaryButtonText}>
+          {isSubmitting ? "Please wait..." : isSignup ? "Create account" : "Login"}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function ProfileScreen({ session, onLogout, onSessionChange }) {
+  const [fullName, setFullName] = useState(session.user.fullName);
+  const [status, setStatus] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function handleSave() {
+    setIsSaving(true);
+    setStatus("");
+
+    try {
+      const updatedSession = await updateProfile({ session, fullName });
+      onSessionChange(updatedSession);
+      setStatus("Profile updated.");
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <View style={styles.profileContainer}>
+      <Text style={styles.kicker}>Profile</Text>
+      <Text style={styles.title}>Hello, {session.user.fullName}</Text>
+      <Text style={styles.subtitle}>{session.user.email}</Text>
+      <Text style={styles.sourceText}>
+        {session.source === "supabase"
+          ? "Account connected with Supabase"
+          : "Demo account until Supabase Auth is connected"}
+      </Text>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Account Details</Text>
+        <TextInput
+          value={fullName}
+          onChangeText={setFullName}
+          placeholder="Full name"
+          placeholderTextColor="#8b7d70"
+          style={styles.formInput}
+        />
+        {status ? (
+          <Text style={status === "Profile updated." ? styles.sourceText : styles.errorText}>
+            {status}
+          </Text>
+        ) : null}
+        <Pressable
+          onPress={handleSave}
+          disabled={isSaving}
+          style={[styles.primaryButton, isSaving && styles.primaryButtonDisabled]}
+        >
+          <Text style={styles.primaryButtonText}>
+            {isSaving ? "Saving..." : "Save profile"}
+          </Text>
+        </Pressable>
+        <Pressable onPress={onLogout} style={styles.secondaryButton}>
+          <Text style={styles.secondaryButtonText}>Logout</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 function RecipeCard({ recipe, onPress }) {
   return (
     <Pressable style={styles.card} onPress={onPress}>
@@ -212,8 +446,35 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 18
   },
+  tabs: {
+    flexDirection: "row",
+    gap: 10,
+    paddingTop: 16
+  },
+  tabButton: {
+    backgroundColor: "#ffffff",
+    borderColor: "#ead8c8",
+    borderRadius: 8,
+    borderWidth: 1,
+    minWidth: 94,
+    paddingHorizontal: 14,
+    paddingVertical: 10
+  },
+  tabButtonActive: {
+    backgroundColor: "#251a13",
+    borderColor: "#251a13"
+  },
+  tabButtonText: {
+    color: "#4d4037",
+    fontSize: 14,
+    fontWeight: "800",
+    textAlign: "center"
+  },
+  tabButtonTextActive: {
+    color: "#ffffff"
+  },
   header: {
-    paddingTop: 20,
+    paddingTop: 18,
     paddingBottom: 18
   },
   kicker: {
@@ -256,6 +517,80 @@ const styles = StyleSheet.create({
     fontSize: 15,
     height: 48,
     paddingHorizontal: 14
+  },
+  formInput: {
+    backgroundColor: "#ffffff",
+    borderColor: "#ead8c8",
+    borderRadius: 8,
+    borderWidth: 1,
+    color: "#251a13",
+    fontSize: 15,
+    height: 48,
+    marginTop: 12,
+    paddingHorizontal: 14
+  },
+  authContainer: {
+    paddingBottom: 28,
+    paddingTop: 22
+  },
+  authModeRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 18
+  },
+  authModeButton: {
+    backgroundColor: "#ffffff",
+    borderColor: "#ead8c8",
+    borderRadius: 8,
+    borderWidth: 1,
+    flex: 1,
+    paddingVertical: 12
+  },
+  authModeButtonActive: {
+    backgroundColor: "#251a13",
+    borderColor: "#251a13"
+  },
+  authModeText: {
+    color: "#4d4037",
+    fontSize: 14,
+    fontWeight: "900",
+    textAlign: "center"
+  },
+  authModeTextActive: {
+    color: "#ffffff"
+  },
+  primaryButton: {
+    alignItems: "center",
+    backgroundColor: "#b4512b",
+    borderRadius: 8,
+    marginTop: 16,
+    paddingVertical: 14
+  },
+  primaryButtonDisabled: {
+    opacity: 0.65
+  },
+  primaryButtonText: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  secondaryButton: {
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+    borderColor: "#ead8c8",
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 10,
+    paddingVertical: 14
+  },
+  secondaryButtonText: {
+    color: "#251a13",
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  profileContainer: {
+    paddingBottom: 28,
+    paddingTop: 22
   },
   countryList: {
     flexDirection: "row",

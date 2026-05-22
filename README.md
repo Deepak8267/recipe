@@ -8,6 +8,7 @@ A cross-platform recipe app for iOS and Android built with React Native Expo.
 - Search by recipe, country, ingredient, or tag
 - Filter recipes by country
 - Open a recipe detail view with image, ingredients, and cooking steps
+- Create account, login, logout, and edit profile name
 - Local recipe data that can later move into Supabase
 
 ## Recommended Full-Stack Setup
@@ -50,7 +51,7 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=
 
 The first version uses local sample data. The next backend step is to create Supabase tables for countries, recipes, ingredients, steps, favorites, and admin uploads.
 
-When the two Expo public keys are empty, the app automatically uses the sample recipes in `src/data/recipes.js`. After you add real Supabase keys and run the SQL schema, the app will load published recipes from Supabase.
+When the two Expo public keys are empty, the app automatically uses sample recipes and demo auth. After you add real Supabase keys and run the SQL schema, the app will load published recipes from Supabase and use Supabase Auth for real accounts.
 
 ## GitHub
 

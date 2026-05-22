@@ -40,11 +40,20 @@ create table favorite_recipes (
   primary key (user_id, recipe_id)
 );
 
+create table profiles (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  full_name text not null,
+  avatar_url text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 alter table countries enable row level security;
 alter table recipes enable row level security;
 alter table recipe_ingredients enable row level security;
 alter table recipe_steps enable row level security;
 alter table favorite_recipes enable row level security;
+alter table profiles enable row level security;
 
 create policy "Published countries are readable"
   on countries for select
@@ -85,3 +94,16 @@ create policy "Users can add own favorites"
 create policy "Users can remove own favorites"
   on favorite_recipes for delete
   using (auth.uid() = user_id);
+
+create policy "Users can read own profile"
+  on profiles for select
+  using (auth.uid() = user_id);
+
+create policy "Users can create own profile"
+  on profiles for insert
+  with check (auth.uid() = user_id);
+
+create policy "Users can update own profile"
+  on profiles for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);

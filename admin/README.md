@@ -31,6 +31,7 @@ window.WORLD_RECIPES_ADMIN_CONFIG = {
 - Create countries automatically
 - Upload recipe title, country, region, time, servings, image file or image URL, tags, ingredients, and steps
 - Publish or save recipe as unpublished
+- Review uploaded recipes, publish/unpublish them, and delete recipes
 
 Only users listed in the `admins` table can upload recipe content.
 

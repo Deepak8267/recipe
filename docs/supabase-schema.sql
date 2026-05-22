@@ -110,6 +110,10 @@ create policy "Admins can update recipes"
   using (is_admin())
   with check (is_admin());
 
+create policy "Admins can delete recipes"
+  on recipes for delete
+  using (is_admin());
+
 create policy "Recipe ingredients are readable"
   on recipe_ingredients for select
   using (

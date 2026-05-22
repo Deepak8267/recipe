@@ -8,6 +8,7 @@ const elements = {
   setupPanel: document.querySelector("#setupPanel"),
   loginPanel: document.querySelector("#loginPanel"),
   recipePanel: document.querySelector("#recipePanel"),
+  managePanel: document.querySelector("#managePanel"),
   logoutButton: document.querySelector("#logoutButton"),
   emailInput: document.querySelector("#emailInput"),
   passwordInput: document.querySelector("#passwordInput"),
@@ -27,6 +28,8 @@ const elements = {
   stepsInput: document.querySelector("#stepsInput"),
   publishedInput: document.querySelector("#publishedInput"),
   saveButton: document.querySelector("#saveButton"),
+  refreshButton: document.querySelector("#refreshButton"),
+  recipeList: document.querySelector("#recipeList"),
   recipeStatus: document.querySelector("#recipeStatus")
 };
 
@@ -41,6 +44,7 @@ if (isConfigured) {
 elements.loginButton.addEventListener("click", handleLogin);
 elements.logoutButton.addEventListener("click", handleLogout);
 elements.saveButton.addEventListener("click", handleSaveRecipe);
+elements.refreshButton.addEventListener("click", loadRecipeList);
 
 async function handleLogin() {
   setStatus(elements.loginStatus, "");
@@ -60,7 +64,9 @@ async function handleLogin() {
     elements.sessionText.textContent = `Logged in as ${state.user.email}`;
     elements.loginPanel.classList.add("hidden");
     elements.recipePanel.classList.remove("hidden");
+    elements.managePanel.classList.remove("hidden");
     elements.logoutButton.classList.remove("hidden");
+    await loadRecipeList();
   } catch (error) {
     setStatus(elements.loginStatus, error.message, "error");
   } finally {
@@ -73,8 +79,10 @@ function handleLogout() {
   state.user = null;
   elements.passwordInput.value = "";
   elements.recipePanel.classList.add("hidden");
+  elements.managePanel.classList.add("hidden");
   elements.logoutButton.classList.add("hidden");
   elements.loginPanel.classList.remove("hidden");
+  elements.recipeList.innerHTML = "";
 }
 
 async function handleSaveRecipe() {
@@ -102,11 +110,133 @@ async function handleSaveRecipe() {
 
     clearRecipeForm();
     setStatus(elements.recipeStatus, "Recipe saved successfully.", "success");
+    await loadRecipeList();
   } catch (error) {
     setStatus(elements.recipeStatus, error.message, "error");
   } finally {
     elements.saveButton.disabled = false;
   }
+}
+
+async function loadRecipeList() {
+  elements.recipeList.innerHTML = '<p class="muted">Loading recipes...</p>';
+
+  try {
+    const select = [
+      "id",
+      "title",
+      "is_published",
+      "time_minutes",
+      "servings",
+      "created_at",
+      "countries(name)"
+    ].join(",");
+    const recipes = await request(
+      `/rest/v1/recipes?select=${encodeURIComponent(select)}&order=created_at.desc`,
+      {
+        authed: true
+      }
+    );
+
+    renderRecipeList(recipes);
+  } catch (error) {
+    elements.recipeList.innerHTML = `<p class="status error">${escapeHtml(
+      error.message
+    )}</p>`;
+  }
+}
+
+function renderRecipeList(recipes) {
+  if (!recipes.length) {
+    elements.recipeList.innerHTML = '<p class="muted">No recipes uploaded yet.</p>';
+    return;
+  }
+
+  elements.recipeList.innerHTML = recipes
+    .map(
+      (recipe) => `
+        <article class="recipeRow">
+          <div>
+            <h3>${escapeHtml(recipe.title)}</h3>
+            <p>${escapeHtml(recipe.countries?.name || "Unknown")} - ${
+        recipe.time_minutes
+      } min - Serves ${recipe.servings}</p>
+            <span class="${recipe.is_published ? "badge published" : "badge draft"}">
+              ${recipe.is_published ? "Published" : "Draft"}
+            </span>
+          </div>
+          <div class="recipeActions">
+            <button
+              class="secondary"
+              type="button"
+              data-action="toggle"
+              data-id="${recipe.id}"
+              data-published="${recipe.is_published}"
+            >
+              ${recipe.is_published ? "Unpublish" : "Publish"}
+            </button>
+            <button
+              class="danger"
+              type="button"
+              data-action="delete"
+              data-id="${recipe.id}"
+            >
+              Delete
+            </button>
+          </div>
+        </article>
+      `
+    )
+    .join("");
+
+  elements.recipeList.querySelectorAll("button[data-action]").forEach((button) => {
+    button.addEventListener("click", () => handleRecipeAction(button));
+  });
+}
+
+async function handleRecipeAction(button) {
+  const recipeId = button.dataset.id;
+  const action = button.dataset.action;
+  button.disabled = true;
+
+  try {
+    if (action === "toggle") {
+      const nextPublished = button.dataset.published !== "true";
+      await updateRecipePublishStatus(recipeId, nextPublished);
+    }
+
+    if (action === "delete") {
+      const confirmed = window.confirm("Delete this recipe?");
+      if (!confirmed) {
+        button.disabled = false;
+        return;
+      }
+
+      await deleteRecipe(recipeId);
+    }
+
+    await loadRecipeList();
+  } catch (error) {
+    alert(error.message);
+    button.disabled = false;
+  }
+}
+
+async function updateRecipePublishStatus(recipeId, isPublished) {
+  await request(`/rest/v1/recipes?id=eq.${encodeURIComponent(recipeId)}`, {
+    method: "PATCH",
+    authed: true,
+    body: {
+      is_published: isPublished
+    }
+  });
+}
+
+async function deleteRecipe(recipeId) {
+  await request(`/rest/v1/recipes?id=eq.${encodeURIComponent(recipeId)}`, {
+    method: "DELETE",
+    authed: true
+  });
 }
 
 async function findOrCreateCountry(countryName) {
@@ -246,6 +376,15 @@ function slugify(value) {
     .toLowerCase()
     .replace(/[^a-z0-9.]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function setStatus(element, message, type = "") {

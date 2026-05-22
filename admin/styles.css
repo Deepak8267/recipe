@@ -149,6 +149,11 @@ button {
   color: #ffffff;
 }
 
+.danger {
+  background: #a02c20;
+  color: #ffffff;
+}
+
 .status {
   font-weight: 800;
   min-height: 24px;
@@ -170,6 +175,53 @@ button {
   color: #a02c20;
 }
 
+.recipeList {
+  display: grid;
+  gap: 12px;
+}
+
+.recipeRow {
+  align-items: center;
+  border: 1px solid #ead8c8;
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 1fr auto;
+  padding: 14px;
+}
+
+.recipeRow h3 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.recipeRow p {
+  margin: 5px 0 9px;
+}
+
+.recipeActions {
+  display: flex;
+  gap: 10px;
+}
+
+.badge {
+  border-radius: 8px;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 6px 9px;
+}
+
+.published {
+  background: #dff3e5;
+  color: #277142;
+}
+
+.draft {
+  background: #f3e5d7;
+  color: #5f3a25;
+}
+
 @media (max-width: 720px) {
   .topbar,
   .panelHeader {
@@ -183,5 +235,13 @@ button {
 
   .grid {
     grid-template-columns: 1fr;
+  }
+
+  .recipeRow {
+    grid-template-columns: 1fr;
+  }
+
+  .recipeActions {
+    flex-direction: column;
   }
 }

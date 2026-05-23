@@ -36,6 +36,10 @@ export async function signUp({ email, password, fullName }) {
     throw new Error(data.msg || data.error_description || "Signup failed.");
   }
 
+  if (!data.access_token) {
+    throw new Error("Account created. Please login with your email and password.");
+  }
+
   return mapSession(data);
 }
 
@@ -123,6 +127,10 @@ function createLocalSession(email, fullName) {
 }
 
 function mapSession(data) {
+  if (!data.access_token || !data.user) {
+    throw new Error("Login response was incomplete. Please try again.");
+  }
+
   return {
     accessToken: data.access_token,
     source: "supabase",
@@ -131,6 +139,10 @@ function mapSession(data) {
 }
 
 function mapUser(user) {
+  if (!user?.id || !user?.email) {
+    throw new Error("User profile was incomplete. Please login again.");
+  }
+
   return {
     id: user.id,
     email: user.email,

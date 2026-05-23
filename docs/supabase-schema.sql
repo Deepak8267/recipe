@@ -1,10 +1,10 @@
-create table countries (
+create table if not exists countries (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
   created_at timestamptz not null default now()
 );
 
-create table recipes (
+create table if not exists recipes (
   id uuid primary key default gen_random_uuid(),
   country_id uuid not null references countries(id) on delete restrict,
   title text not null,
@@ -19,28 +19,28 @@ create table recipes (
   updated_at timestamptz not null default now()
 );
 
-create table recipe_ingredients (
+create table if not exists recipe_ingredients (
   id uuid primary key default gen_random_uuid(),
   recipe_id uuid not null references recipes(id) on delete cascade,
   position integer not null,
   body text not null
 );
 
-create table recipe_steps (
+create table if not exists recipe_steps (
   id uuid primary key default gen_random_uuid(),
   recipe_id uuid not null references recipes(id) on delete cascade,
   position integer not null,
   body text not null
 );
 
-create table favorite_recipes (
+create table if not exists favorite_recipes (
   user_id uuid not null references auth.users(id) on delete cascade,
   recipe_id uuid not null references recipes(id) on delete cascade,
   created_at timestamptz not null default now(),
   primary key (user_id, recipe_id)
 );
 
-create table profiles (
+create table if not exists profiles (
   user_id uuid primary key references auth.users(id) on delete cascade,
   full_name text not null,
   avatar_url text,
@@ -48,7 +48,7 @@ create table profiles (
   updated_at timestamptz not null default now()
 );
 
-create table admins (
+create table if not exists admins (
   user_id uuid primary key references auth.users(id) on delete cascade,
   email text not null unique,
   created_at timestamptz not null default now()
@@ -66,7 +66,7 @@ alter table favorite_recipes enable row level security;
 alter table profiles enable row level security;
 alter table admins enable row level security;
 
-create function is_admin()
+create or replace function is_admin()
 returns boolean
 language sql
 stable
@@ -79,6 +79,30 @@ as $$
     where admins.user_id = auth.uid()
   );
 $$;
+
+drop policy if exists "Published countries are readable" on countries;
+drop policy if exists "Admins can create countries" on countries;
+drop policy if exists "Admins can update countries" on countries;
+drop policy if exists "Published recipes are readable" on recipes;
+drop policy if exists "Admins can read all recipes" on recipes;
+drop policy if exists "Admins can create recipes" on recipes;
+drop policy if exists "Admins can update recipes" on recipes;
+drop policy if exists "Admins can delete recipes" on recipes;
+drop policy if exists "Recipe ingredients are readable" on recipe_ingredients;
+drop policy if exists "Admins can manage recipe ingredients" on recipe_ingredients;
+drop policy if exists "Recipe steps are readable" on recipe_steps;
+drop policy if exists "Admins can manage recipe steps" on recipe_steps;
+drop policy if exists "Users can read own favorites" on favorite_recipes;
+drop policy if exists "Users can add own favorites" on favorite_recipes;
+drop policy if exists "Users can remove own favorites" on favorite_recipes;
+drop policy if exists "Users can read own profile" on profiles;
+drop policy if exists "Users can create own profile" on profiles;
+drop policy if exists "Users can update own profile" on profiles;
+drop policy if exists "Admins can read admin list" on admins;
+drop policy if exists "Recipe images are public" on storage.objects;
+drop policy if exists "Admins can upload recipe images" on storage.objects;
+drop policy if exists "Admins can update recipe images" on storage.objects;
+drop policy if exists "Admins can delete recipe images" on storage.objects;
 
 create policy "Published countries are readable"
   on countries for select

@@ -5,6 +5,9 @@ import {
   supabaseUrl
 } from "../lib/supabase";
 
+const fallbackRecipeImage =
+  "https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=1200&q=80";
+
 export async function getRecipes() {
   if (!isSupabaseConfigured) {
     return {
@@ -61,7 +64,7 @@ function mapRecipeFromSupabase(recipe) {
     timeMinutes: recipe.time_minutes,
     difficulty: recipe.difficulty,
     servings: recipe.servings,
-    image: recipe.image_url,
+    image: recipe.image_url || fallbackRecipeImage,
     tags: recipe.tags ?? [],
     ingredients: sortByPosition(recipe.recipe_ingredients),
     steps: sortByPosition(recipe.recipe_steps)

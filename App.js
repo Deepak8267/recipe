@@ -1,6 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   Image,
   Pressable,
@@ -21,8 +22,8 @@ import { getRecipes } from "./src/services/recipeService";
 
 export default function App() {
   const [recipes, setRecipes] = useState([]);
-  const [recipeSource, setRecipeSource] = useState("local");
   const [recipeError, setRecipeError] = useState(null);
+  const [isLoadingRecipes, setIsLoadingRecipes] = useState(true);
   const [session, setSession] = useState(null);
   const [favoriteIds, setFavoriteIds] = useState([]);
   const [favoriteError, setFavoriteError] = useState(null);
@@ -32,21 +33,7 @@ export default function App() {
   const [activeRecipe, setActiveRecipe] = useState(null);
 
   useEffect(() => {
-    let mounted = true;
-
-    getRecipes().then((result) => {
-      if (!mounted) {
-        return;
-      }
-
-      setRecipes(result.recipes);
-      setRecipeSource(result.source);
-      setRecipeError(result.error ?? null);
-    });
-
-    return () => {
-      mounted = false;
-    };
+    loadRecipes();
   }, []);
 
   useEffect(() => {
@@ -75,9 +62,36 @@ export default function App() {
     };
   }, [session]);
 
+  async function loadRecipes() {
+    setIsLoadingRecipes(true);
+    setRecipeError(null);
+
+    try {
+      const result = await getRecipes();
+      setRecipes(result.recipes);
+      setRecipeError(result.error ?? null);
+    } catch (error) {
+      setRecipeError(error.message);
+    } finally {
+      setIsLoadingRecipes(false);
+    }
+  }
+
   const countries = useMemo(
     () => ["All", ...new Set(recipes.map((recipe) => recipe.country))],
     [recipes]
+  );
+
+  const countryStats = useMemo(
+    () =>
+      countries.map((country) => ({
+        country,
+        count:
+          country === "All"
+            ? recipes.length
+            : recipes.filter((recipe) => recipe.country === country).length
+      })),
+    [countries, recipes]
   );
 
   const filteredRecipes = useMemo(() => {
@@ -90,6 +104,7 @@ export default function App() {
         recipe.title,
         recipe.country,
         recipe.region,
+        recipe.difficulty,
         ...recipe.tags,
         ...recipe.ingredients
       ]
@@ -99,6 +114,12 @@ export default function App() {
       return matchesCountry && searchableText.includes(normalizedQuery);
     });
   }, [query, recipes, selectedCountry]);
+
+  const featuredRecipe = filteredRecipes[0] ?? recipes[0] ?? null;
+  const savedRecipes = useMemo(
+    () => recipes.filter((recipe) => favoriteIds.includes(recipe.id)),
+    [favoriteIds, recipes]
+  );
 
   function changeView(view) {
     setActiveRecipe(null);
@@ -137,11 +158,6 @@ export default function App() {
     }
   }
 
-  const savedRecipes = useMemo(
-    () => recipes.filter((recipe) => favoriteIds.includes(recipe.id)),
-    [favoriteIds, recipes]
-  );
-
   if (currentView === "profile") {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -170,55 +186,14 @@ export default function App() {
 
   if (activeRecipe) {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar style="dark" />
-        <ScrollView style={styles.screen} showsVerticalScrollIndicator={false}>
-          <Pressable style={styles.backButton} onPress={() => setActiveRecipe(null)}>
-            <Text style={styles.backButtonText}>Back to recipes</Text>
-          </Pressable>
-
-          <Image source={{ uri: activeRecipe.image }} style={styles.detailImage} />
-          <View style={styles.detailHeader}>
-            <Text style={styles.countryText}>{activeRecipe.country}</Text>
-            <Text style={styles.detailTitle}>{activeRecipe.title}</Text>
-            <Text style={styles.detailSubtext}>
-              {activeRecipe.region} - {activeRecipe.timeMinutes} min -{" "}
-              {activeRecipe.difficulty} - Serves {activeRecipe.servings}
-            </Text>
-            <View style={styles.tagRow}>
-              {activeRecipe.tags.map((tag) => (
-                <View key={tag} style={styles.tag}>
-                  <Text style={styles.tagText}>{tag}</Text>
-                </View>
-              ))}
-            </View>
-            <Pressable
-              onPress={() => toggleFavorite(activeRecipe.id)}
-              style={[
-                styles.favoriteButton,
-                favoriteIds.includes(activeRecipe.id) && styles.favoriteButtonSaved
-              ]}
-            >
-              <Text
-                style={[
-                  styles.favoriteButtonText,
-                  favoriteIds.includes(activeRecipe.id) &&
-                    styles.favoriteButtonTextSaved
-                ]}
-              >
-                {favoriteIds.includes(activeRecipe.id) ? "Saved" : "Save recipe"}
-              </Text>
-            </Pressable>
-            {!session ? (
-              <Text style={styles.sourceText}>Login first to save this recipe.</Text>
-            ) : null}
-            {favoriteError ? <Text style={styles.errorText}>{favoriteError}</Text> : null}
-          </View>
-
-          <RecipeSection title="Ingredients" items={activeRecipe.ingredients} />
-          <RecipeSection title="Steps" items={activeRecipe.steps} numbered />
-        </ScrollView>
-      </SafeAreaView>
+      <RecipeDetailScreen
+        favoriteError={favoriteError}
+        recipe={activeRecipe}
+        saved={favoriteIds.includes(activeRecipe.id)}
+        signedIn={Boolean(session)}
+        onBack={() => setActiveRecipe(null)}
+        onToggleFavorite={() => toggleFavorite(activeRecipe.id)}
+      />
     );
   }
 
@@ -231,56 +206,28 @@ export default function App() {
           onChange={changeView}
           signedIn={Boolean(session)}
         />
-        <View style={styles.header}>
-          <Text style={styles.kicker}>World Recipes</Text>
-          <Text style={styles.title}>Cook dishes from different countries</Text>
-          <Text style={styles.subtitle}>
-            Search recipes, filter by country, and open a full cooking guide.
-          </Text>
-          <Text style={styles.sourceText}>
-            {recipeSource === "supabase"
-              ? "Connected to Supabase"
-              : "Using sample recipes until Supabase keys are added"}
-          </Text>
-          {recipeError ? <Text style={styles.errorText}>{recipeError}</Text> : null}
-          {favoriteError ? <Text style={styles.errorText}>{favoriteError}</Text> : null}
-        </View>
-
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Search by recipe, country, ingredient..."
-          placeholderTextColor="#8b7d70"
-          style={styles.searchInput}
-        />
-
-        <View style={styles.countryList}>
-          {countries.map((country) => {
-            const selected = selectedCountry === country;
-            return (
-              <Pressable
-                key={country}
-                onPress={() => setSelectedCountry(country)}
-                style={[styles.countryChip, selected && styles.countryChipSelected]}
-              >
-                <Text
-                  style={[
-                    styles.countryChipText,
-                    selected && styles.countryChipTextSelected
-                  ]}
-                >
-                  {country}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
 
         <FlatList
-          data={filteredRecipes}
+          data={isLoadingRecipes ? [] : filteredRecipes}
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.recipeList}
+          ListHeaderComponent={
+            <HomeHeader
+              countries={countryStats}
+              favoriteError={favoriteError}
+              featuredRecipe={featuredRecipe}
+              isLoading={isLoadingRecipes}
+              query={query}
+              recipeError={recipeError}
+              recipeCount={recipes.length}
+              selectedCountry={selectedCountry}
+              onCountryChange={setSelectedCountry}
+              onOpenRecipe={setActiveRecipe}
+              onQueryChange={setQuery}
+              onRetry={loadRecipes}
+            />
+          }
           renderItem={({ item }) => (
             <RecipeCard
               recipe={item}
@@ -290,16 +237,246 @@ export default function App() {
             />
           )}
           ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyTitle}>No recipes found</Text>
-              <Text style={styles.emptyText}>
-                Try another country, ingredient, or recipe name.
-              </Text>
-            </View>
+            isLoadingRecipes ? (
+              <LoadingState />
+            ) : (
+              <EmptyState
+                hasError={Boolean(recipeError)}
+                onRetry={loadRecipes}
+                query={query}
+              />
+            )
           }
         />
       </View>
     </SafeAreaView>
+  );
+}
+
+function HomeHeader({
+  countries,
+  favoriteError,
+  featuredRecipe,
+  isLoading,
+  query,
+  recipeError,
+  recipeCount,
+  selectedCountry,
+  onCountryChange,
+  onOpenRecipe,
+  onQueryChange,
+  onRetry
+}) {
+  return (
+    <View>
+      <View style={styles.hero}>
+        <View style={styles.brandRow}>
+          <View style={styles.logoMark}>
+            <Text style={styles.logoMarkText}>WR</Text>
+          </View>
+          <View>
+            <Text style={styles.kicker}>World Recipes</Text>
+            <Text style={styles.brandSubtext}>{recipeCount} published recipes</Text>
+          </View>
+        </View>
+        <Text style={styles.title}>Cook your way around the world</Text>
+        <Text style={styles.subtitle}>
+          Find real recipes by country, ingredient, and cooking style.
+        </Text>
+      </View>
+
+      {recipeError ? (
+        <InlineMessage message={recipeError} tone="error" onRetry={onRetry} />
+      ) : null}
+      {favoriteError ? <InlineMessage message={favoriteError} tone="error" /> : null}
+
+      {featuredRecipe && !isLoading ? (
+        <Pressable
+          style={styles.featuredCard}
+          onPress={() => onOpenRecipe(featuredRecipe)}
+        >
+          <Image source={{ uri: featuredRecipe.image }} style={styles.featuredImage} />
+          <View style={styles.featuredBody}>
+            <Text style={styles.featuredLabel}>Featured</Text>
+            <Text style={styles.featuredTitle}>{featuredRecipe.title}</Text>
+            <Text style={styles.featuredMeta}>
+              {featuredRecipe.country} - {featuredRecipe.timeMinutes} min -{" "}
+              {featuredRecipe.difficulty}
+            </Text>
+          </View>
+        </Pressable>
+      ) : null}
+
+      <View style={styles.searchBlock}>
+        <TextInput
+          value={query}
+          onChangeText={onQueryChange}
+          placeholder="Search recipes, ingredients, countries"
+          placeholderTextColor="#7a827c"
+          style={styles.searchInput}
+        />
+      </View>
+
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionEyebrow}>Browse Countries</Text>
+        <Text style={styles.sectionHint}>{countries.length} filters</Text>
+      </View>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.countryScroller}
+      >
+        {countries.map(({ country, count }) => {
+          const selected = selectedCountry === country;
+          return (
+            <Pressable
+              key={country}
+              onPress={() => onCountryChange(country)}
+              style={[styles.countryCard, selected && styles.countryCardSelected]}
+            >
+              <Text
+                style={[
+                  styles.countryCardTitle,
+                  selected && styles.countryCardTitleSelected
+                ]}
+              >
+                {country}
+              </Text>
+              <Text
+                style={[
+                  styles.countryCardCount,
+                  selected && styles.countryCardCountSelected
+                ]}
+              >
+                {count} recipes
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionEyebrow}>Recipes</Text>
+        <Text style={styles.sectionHint}>{selectedCountry}</Text>
+      </View>
+    </View>
+  );
+}
+
+function RecipeDetailScreen({
+  favoriteError,
+  recipe,
+  saved,
+  signedIn,
+  onBack,
+  onToggleFavorite
+}) {
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar style="light" />
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <View style={styles.detailHero}>
+          <Image source={{ uri: recipe.image }} style={styles.detailImage} />
+          <Pressable style={styles.detailBackButton} onPress={onBack}>
+            <Text style={styles.detailBackText}>Back</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.detailContent}>
+          <Text style={styles.countryText}>{recipe.country}</Text>
+          <Text style={styles.detailTitle}>{recipe.title}</Text>
+          <Text style={styles.detailSubtext}>{recipe.region}</Text>
+
+          <View style={styles.detailMetaGrid}>
+            <MetaTile label="Time" value={`${recipe.timeMinutes} min`} />
+            <MetaTile label="Level" value={recipe.difficulty} />
+            <MetaTile label="Serves" value={`${recipe.servings}`} />
+          </View>
+
+          {recipe.tags.length ? (
+            <View style={styles.tagRow}>
+              {recipe.tags.map((tag) => (
+                <View key={tag} style={styles.tag}>
+                  <Text style={styles.tagText}>{tag}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          <Pressable
+            onPress={onToggleFavorite}
+            style={[styles.favoriteButton, saved && styles.favoriteButtonSaved]}
+          >
+            <Text
+              style={[
+                styles.favoriteButtonText,
+                saved && styles.favoriteButtonTextSaved
+              ]}
+            >
+              {saved ? "Saved" : "Save recipe"}
+            </Text>
+          </Pressable>
+          {!signedIn ? (
+            <Text style={styles.helperText}>Login first to save this recipe.</Text>
+          ) : null}
+          {favoriteError ? <Text style={styles.errorText}>{favoriteError}</Text> : null}
+
+          <RecipeSection title="Ingredients" items={recipe.ingredients} />
+          <RecipeSection title="Steps" items={recipe.steps} numbered />
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function MetaTile({ label, value }) {
+  return (
+    <View style={styles.metaTile}>
+      <Text style={styles.metaLabel}>{label}</Text>
+      <Text style={styles.metaValue}>{value}</Text>
+    </View>
+  );
+}
+
+function InlineMessage({ message, tone, onRetry }) {
+  return (
+    <View style={[styles.inlineMessage, tone === "error" && styles.inlineError]}>
+      <Text style={styles.inlineMessageText}>{message}</Text>
+      {onRetry ? (
+        <Pressable style={styles.inlineButton} onPress={onRetry}>
+          <Text style={styles.inlineButtonText}>Retry</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function LoadingState() {
+  return (
+    <View style={styles.stateBox}>
+      <ActivityIndicator color="#e05f2f" size="large" />
+      <Text style={styles.emptyTitle}>Loading recipes</Text>
+      <Text style={styles.emptyText}>Fresh dishes are coming in.</Text>
+    </View>
+  );
+}
+
+function EmptyState({ hasError, onRetry, query }) {
+  return (
+    <View style={styles.stateBox}>
+      <Text style={styles.emptyTitle}>
+        {hasError ? "Could not load recipes" : "No recipes found"}
+      </Text>
+      <Text style={styles.emptyText}>
+        {query ? "Try a different search or country." : "Published recipes will appear here."}
+      </Text>
+      {hasError ? (
+        <Pressable style={styles.secondaryButton} onPress={onRetry}>
+          <Text style={styles.secondaryButtonText}>Try again</Text>
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 
@@ -365,11 +542,8 @@ function AuthScreen({ onSessionChange }) {
   return (
     <View style={styles.authContainer}>
       <Text style={styles.kicker}>{isSignup ? "Create Account" : "Welcome Back"}</Text>
-      <Text style={styles.title}>
+      <Text style={styles.authTitle}>
         {isSignup ? "Start your recipe profile" : "Log in to your recipe profile"}
-      </Text>
-      <Text style={styles.subtitle}>
-        Use demo login now, then connect real Supabase Auth by adding your keys.
       </Text>
 
       <View style={styles.authModeRow}>
@@ -396,7 +570,7 @@ function AuthScreen({ onSessionChange }) {
           value={fullName}
           onChangeText={setFullName}
           placeholder="Full name"
-          placeholderTextColor="#8b7d70"
+          placeholderTextColor="#7a827c"
           style={styles.formInput}
         />
       ) : null}
@@ -406,14 +580,14 @@ function AuthScreen({ onSessionChange }) {
         autoCapitalize="none"
         keyboardType="email-address"
         placeholder="Email address"
-        placeholderTextColor="#8b7d70"
+        placeholderTextColor="#7a827c"
         style={styles.formInput}
       />
       <TextInput
         value={password}
         onChangeText={setPassword}
         placeholder="Password"
-        placeholderTextColor="#8b7d70"
+        placeholderTextColor="#7a827c"
         secureTextEntry
         style={styles.formInput}
       />
@@ -462,26 +636,21 @@ function ProfileScreen({
   return (
     <View style={styles.profileContainer}>
       <Text style={styles.kicker}>Profile</Text>
-      <Text style={styles.title}>Hello, {session.user.fullName}</Text>
+      <Text style={styles.authTitle}>Hello, {session.user.fullName}</Text>
       <Text style={styles.subtitle}>{session.user.email}</Text>
-      <Text style={styles.sourceText}>
-        {session.source === "supabase"
-          ? "Account connected with Supabase"
-          : "Demo account until Supabase Auth is connected"}
-      </Text>
       {favoriteError ? <Text style={styles.errorText}>{favoriteError}</Text> : null}
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Account Details</Text>
+      <View style={styles.panel}>
+        <Text style={styles.sectionTitle}>Account</Text>
         <TextInput
           value={fullName}
           onChangeText={setFullName}
           placeholder="Full name"
-          placeholderTextColor="#8b7d70"
+          placeholderTextColor="#7a827c"
           style={styles.formInput}
         />
         {status ? (
-          <Text style={status === "Profile updated." ? styles.sourceText : styles.errorText}>
+          <Text style={status === "Profile updated." ? styles.successText : styles.errorText}>
             {status}
           </Text>
         ) : null}
@@ -499,15 +668,18 @@ function ProfileScreen({
         </Pressable>
       </View>
 
-      <View style={styles.section}>
+      <View style={styles.panel}>
         <Text style={styles.sectionTitle}>Saved Recipes</Text>
         {savedRecipes.length ? (
           savedRecipes.map((recipe) => (
             <View key={recipe.id} style={styles.savedRecipeRow}>
-              <Text style={styles.savedRecipeTitle}>{recipe.title}</Text>
-              <Text style={styles.savedRecipeMeta}>
-                {recipe.country} - {recipe.timeMinutes} min
-              </Text>
+              <Image source={{ uri: recipe.image }} style={styles.savedRecipeImage} />
+              <View style={styles.savedRecipeCopy}>
+                <Text style={styles.savedRecipeTitle}>{recipe.title}</Text>
+                <Text style={styles.savedRecipeMeta}>
+                  {recipe.country} - {recipe.timeMinutes} min
+                </Text>
+              </View>
             </View>
           ))
         ) : (
@@ -523,34 +695,38 @@ function RecipeCard({ recipe, saved, onPress, onToggleFavorite }) {
     <Pressable style={styles.card} onPress={onPress}>
       <Image source={{ uri: recipe.image }} style={styles.cardImage} />
       <View style={styles.cardBody}>
-        <Text style={styles.cardCountry}>{recipe.country}</Text>
+        <View style={styles.cardHeaderRow}>
+          <Text style={styles.cardCountry}>{recipe.country}</Text>
+          <Pressable
+            onPress={(event) => {
+              event.stopPropagation();
+              onToggleFavorite();
+            }}
+            style={[styles.cardSaveButton, saved && styles.cardSaveButtonActive]}
+          >
+            <Text
+              style={[
+                styles.cardSaveText,
+                saved && styles.cardSaveTextActive
+              ]}
+            >
+              {saved ? "Saved" : "Save"}
+            </Text>
+          </Pressable>
+        </View>
         <Text style={styles.cardTitle}>{recipe.title}</Text>
         <Text style={styles.cardMeta}>
           {recipe.timeMinutes} min - {recipe.difficulty} - Serves {recipe.servings}
         </Text>
-        <View style={styles.tagRow}>
-          {recipe.tags.slice(0, 3).map((tag) => (
-            <View key={tag} style={styles.tag}>
-              <Text style={styles.tagText}>{tag}</Text>
-            </View>
-          ))}
-        </View>
-        <Pressable
-          onPress={(event) => {
-            event.stopPropagation();
-            onToggleFavorite();
-          }}
-          style={[styles.favoriteButton, saved && styles.favoriteButtonSaved]}
-        >
-          <Text
-            style={[
-              styles.favoriteButtonText,
-              saved && styles.favoriteButtonTextSaved
-            ]}
-          >
-            {saved ? "Saved" : "Save"}
-          </Text>
-        </Pressable>
+        {recipe.tags.length ? (
+          <View style={styles.tagRow}>
+            {recipe.tags.slice(0, 3).map((tag) => (
+              <View key={tag} style={styles.tag}>
+                <Text style={styles.tagText}>{tag}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
       </View>
     </Pressable>
   );
@@ -558,22 +734,38 @@ function RecipeCard({ recipe, saved, onPress, onToggleFavorite }) {
 
 function RecipeSection({ title, items, numbered = false }) {
   return (
-    <View style={styles.section}>
+    <View style={styles.panel}>
       <Text style={styles.sectionTitle}>{title}</Text>
-      {items.map((item, index) => (
-        <View key={`${title}-${item}`} style={styles.listItem}>
-          <Text style={styles.bullet}>{numbered ? `${index + 1}.` : "-"}</Text>
-          <Text style={styles.listText}>{item}</Text>
-        </View>
-      ))}
+      {items.length ? (
+        items.map((item, index) => (
+          <View key={`${title}-${item}-${index}`} style={styles.listItem}>
+            <Text style={styles.bullet}>{numbered ? `${index + 1}` : "-"}</Text>
+            <Text style={styles.listText}>{item}</Text>
+          </View>
+        ))
+      ) : (
+        <Text style={styles.emptyText}>Not added yet.</Text>
+      )}
     </View>
   );
 }
 
+const colors = {
+  background: "#f5faf7",
+  panel: "#ffffff",
+  ink: "#17211c",
+  muted: "#637168",
+  line: "#dbe8df",
+  green: "#1f6b4f",
+  greenSoft: "#dff1e8",
+  tomato: "#e05f2f",
+  tomatoSoft: "#fde6da"
+};
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#fff8f0"
+    backgroundColor: colors.background
   },
   screen: {
     flex: 1,
@@ -582,11 +774,11 @@ const styles = StyleSheet.create({
   tabs: {
     flexDirection: "row",
     gap: 10,
-    paddingTop: 16
+    paddingTop: 14
   },
   tabButton: {
-    backgroundColor: "#ffffff",
-    borderColor: "#ead8c8",
+    backgroundColor: colors.panel,
+    borderColor: colors.line,
     borderRadius: 8,
     borderWidth: 1,
     minWidth: 94,
@@ -594,11 +786,11 @@ const styles = StyleSheet.create({
     paddingVertical: 10
   },
   tabButtonActive: {
-    backgroundColor: "#251a13",
-    borderColor: "#251a13"
+    backgroundColor: colors.ink,
+    borderColor: colors.ink
   },
   tabButtonText: {
-    color: "#4d4037",
+    color: colors.muted,
     fontSize: 14,
     fontWeight: "800",
     textAlign: "center"
@@ -606,61 +798,404 @@ const styles = StyleSheet.create({
   tabButtonTextActive: {
     color: "#ffffff"
   },
-  header: {
-    paddingTop: 18,
+  hero: {
+    paddingTop: 22,
     paddingBottom: 18
   },
-  kicker: {
-    color: "#b4512b",
+  brandRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 15
+  },
+  logoMark: {
+    alignItems: "center",
+    backgroundColor: colors.green,
+    borderRadius: 8,
+    height: 42,
+    justifyContent: "center",
+    width: 42
+  },
+  logoMarkText: {
+    color: "#ffffff",
     fontSize: 14,
-    fontWeight: "800",
-    marginBottom: 6,
+    fontWeight: "900"
+  },
+  kicker: {
+    color: colors.tomato,
+    fontSize: 13,
+    fontWeight: "900",
+    marginBottom: 3,
     textTransform: "uppercase"
   },
+  brandSubtext: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700"
+  },
   title: {
-    color: "#251a13",
-    fontSize: 30,
+    color: colors.ink,
+    fontSize: 33,
     fontWeight: "900",
-    lineHeight: 36
+    lineHeight: 39
+  },
+  authTitle: {
+    color: colors.ink,
+    fontSize: 29,
+    fontWeight: "900",
+    lineHeight: 35
   },
   subtitle: {
-    color: "#6f6258",
+    color: colors.muted,
     fontSize: 15,
     lineHeight: 22,
     marginTop: 8
   },
-  sourceText: {
-    color: "#7a5d43",
-    fontSize: 13,
-    fontWeight: "700",
-    marginTop: 10
+  featuredCard: {
+    backgroundColor: colors.ink,
+    borderRadius: 8,
+    marginBottom: 16,
+    overflow: "hidden"
   },
-  errorText: {
-    color: "#a02c20",
-    fontSize: 13,
-    fontWeight: "700",
+  featuredImage: {
+    height: 190,
+    width: "100%"
+  },
+  featuredBody: {
+    padding: 16
+  },
+  featuredLabel: {
+    color: "#b8f1d8",
+    fontSize: 12,
+    fontWeight: "900",
+    marginBottom: 5,
+    textTransform: "uppercase"
+  },
+  featuredTitle: {
+    color: "#ffffff",
+    fontSize: 24,
+    fontWeight: "900"
+  },
+  featuredMeta: {
+    color: "#dbe8df",
+    fontSize: 14,
     marginTop: 6
   },
+  searchBlock: {
+    marginBottom: 14
+  },
   searchInput: {
-    backgroundColor: "#ffffff",
-    borderColor: "#ead8c8",
+    backgroundColor: colors.panel,
+    borderColor: colors.line,
     borderRadius: 8,
     borderWidth: 1,
-    color: "#251a13",
+    color: colors.ink,
     fontSize: 15,
-    height: 48,
+    height: 50,
     paddingHorizontal: 14
   },
-  formInput: {
-    backgroundColor: "#ffffff",
-    borderColor: "#ead8c8",
+  sectionHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 10,
+    marginTop: 4
+  },
+  sectionEyebrow: {
+    color: colors.ink,
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  sectionHint: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  countryScroller: {
+    gap: 10,
+    paddingBottom: 16
+  },
+  countryCard: {
+    backgroundColor: colors.panel,
+    borderColor: colors.line,
     borderRadius: 8,
     borderWidth: 1,
-    color: "#251a13",
+    minWidth: 116,
+    padding: 13
+  },
+  countryCardSelected: {
+    backgroundColor: colors.green,
+    borderColor: colors.green
+  },
+  countryCardTitle: {
+    color: colors.ink,
     fontSize: 15,
-    height: 48,
-    marginTop: 12,
-    paddingHorizontal: 14
+    fontWeight: "900"
+  },
+  countryCardTitleSelected: {
+    color: "#ffffff"
+  },
+  countryCardCount: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 5
+  },
+  countryCardCountSelected: {
+    color: "#dff1e8"
+  },
+  recipeList: {
+    paddingBottom: 28
+  },
+  card: {
+    backgroundColor: colors.panel,
+    borderColor: colors.line,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 14,
+    overflow: "hidden"
+  },
+  cardImage: {
+    height: 176,
+    width: "100%"
+  },
+  cardBody: {
+    padding: 14
+  },
+  cardHeaderRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  cardCountry: {
+    color: colors.tomato,
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase"
+  },
+  cardTitle: {
+    color: colors.ink,
+    fontSize: 22,
+    fontWeight: "900",
+    marginTop: 5
+  },
+  cardMeta: {
+    color: colors.muted,
+    fontSize: 14,
+    marginTop: 6
+  },
+  cardSaveButton: {
+    backgroundColor: colors.tomatoSoft,
+    borderRadius: 8,
+    minWidth: 64,
+    paddingHorizontal: 10,
+    paddingVertical: 7
+  },
+  cardSaveButtonActive: {
+    backgroundColor: colors.tomato
+  },
+  cardSaveText: {
+    color: colors.tomato,
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center"
+  },
+  cardSaveTextActive: {
+    color: "#ffffff"
+  },
+  tagRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 12
+  },
+  tag: {
+    backgroundColor: colors.greenSoft,
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 6
+  },
+  tagText: {
+    color: colors.green,
+    fontSize: 12,
+    fontWeight: "800"
+  },
+  stateBox: {
+    alignItems: "center",
+    backgroundColor: colors.panel,
+    borderColor: colors.line,
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 26
+  },
+  emptyTitle: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: "900",
+    marginTop: 10,
+    textAlign: "center"
+  },
+  emptyText: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 6,
+    textAlign: "center"
+  },
+  inlineMessage: {
+    backgroundColor: colors.greenSoft,
+    borderColor: colors.line,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 14,
+    padding: 12
+  },
+  inlineError: {
+    backgroundColor: colors.tomatoSoft,
+    borderColor: "#f3b79c"
+  },
+  inlineMessageText: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  inlineButton: {
+    alignSelf: "flex-start",
+    marginTop: 10
+  },
+  inlineButtonText: {
+    color: colors.tomato,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  detailHero: {
+    backgroundColor: colors.ink
+  },
+  detailImage: {
+    height: 330,
+    width: "100%"
+  },
+  detailBackButton: {
+    backgroundColor: "rgba(23, 33, 28, 0.88)",
+    borderRadius: 8,
+    left: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    position: "absolute",
+    top: 18
+  },
+  detailBackText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  detailContent: {
+    backgroundColor: colors.background,
+    padding: 18
+  },
+  countryText: {
+    color: colors.tomato,
+    fontSize: 13,
+    fontWeight: "900",
+    marginBottom: 5,
+    textTransform: "uppercase"
+  },
+  detailTitle: {
+    color: colors.ink,
+    fontSize: 34,
+    fontWeight: "900",
+    lineHeight: 40
+  },
+  detailSubtext: {
+    color: colors.muted,
+    fontSize: 15,
+    marginTop: 8
+  },
+  detailMetaGrid: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 16
+  },
+  metaTile: {
+    backgroundColor: colors.panel,
+    borderColor: colors.line,
+    borderRadius: 8,
+    borderWidth: 1,
+    flex: 1,
+    padding: 12
+  },
+  metaLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase"
+  },
+  metaValue: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "900",
+    marginTop: 4
+  },
+  favoriteButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: colors.panel,
+    borderColor: colors.tomato,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 16,
+    marginTop: 16,
+    minWidth: 116,
+    paddingHorizontal: 13,
+    paddingVertical: 10
+  },
+  favoriteButtonSaved: {
+    backgroundColor: colors.tomato
+  },
+  favoriteButtonText: {
+    color: colors.tomato,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  favoriteButtonTextSaved: {
+    color: "#ffffff"
+  },
+  helperText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    marginBottom: 12
+  },
+  panel: {
+    backgroundColor: colors.panel,
+    borderColor: colors.line,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 16,
+    padding: 16
+  },
+  sectionTitle: {
+    color: colors.ink,
+    fontSize: 20,
+    fontWeight: "900",
+    marginBottom: 12
+  },
+  listItem: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 11
+  },
+  bullet: {
+    color: colors.tomato,
+    fontSize: 14,
+    fontWeight: "900",
+    minWidth: 22
+  },
+  listText: {
+    color: "#33423a",
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 22
   },
   authContainer: {
     paddingBottom: 28,
@@ -672,19 +1207,19 @@ const styles = StyleSheet.create({
     marginTop: 18
   },
   authModeButton: {
-    backgroundColor: "#ffffff",
-    borderColor: "#ead8c8",
+    backgroundColor: colors.panel,
+    borderColor: colors.line,
     borderRadius: 8,
     borderWidth: 1,
     flex: 1,
     paddingVertical: 12
   },
   authModeButtonActive: {
-    backgroundColor: "#251a13",
-    borderColor: "#251a13"
+    backgroundColor: colors.ink,
+    borderColor: colors.ink
   },
   authModeText: {
-    color: "#4d4037",
+    color: colors.muted,
     fontSize: 14,
     fontWeight: "900",
     textAlign: "center"
@@ -692,9 +1227,20 @@ const styles = StyleSheet.create({
   authModeTextActive: {
     color: "#ffffff"
   },
+  formInput: {
+    backgroundColor: colors.panel,
+    borderColor: colors.line,
+    borderRadius: 8,
+    borderWidth: 1,
+    color: colors.ink,
+    fontSize: 15,
+    height: 50,
+    marginTop: 12,
+    paddingHorizontal: 14
+  },
   primaryButton: {
     alignItems: "center",
-    backgroundColor: "#b4512b",
+    backgroundColor: colors.tomato,
     borderRadius: 8,
     marginTop: 16,
     paddingVertical: 14
@@ -709,226 +1255,58 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     alignItems: "center",
-    backgroundColor: "#ffffff",
-    borderColor: "#ead8c8",
+    backgroundColor: colors.panel,
+    borderColor: colors.line,
     borderRadius: 8,
     borderWidth: 1,
     marginTop: 10,
     paddingVertical: 14
   },
   secondaryButtonText: {
-    color: "#251a13",
+    color: colors.ink,
     fontSize: 15,
     fontWeight: "900"
-  },
-  favoriteButton: {
-    alignItems: "center",
-    alignSelf: "flex-start",
-    backgroundColor: "#ffffff",
-    borderColor: "#b4512b",
-    borderRadius: 8,
-    borderWidth: 1,
-    marginTop: 14,
-    minWidth: 92,
-    paddingHorizontal: 13,
-    paddingVertical: 9
-  },
-  favoriteButtonSaved: {
-    backgroundColor: "#b4512b"
-  },
-  favoriteButtonText: {
-    color: "#b4512b",
-    fontSize: 13,
-    fontWeight: "900"
-  },
-  favoriteButtonTextSaved: {
-    color: "#ffffff"
   },
   profileContainer: {
     paddingBottom: 28,
     paddingTop: 22
   },
-  countryList: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    paddingVertical: 14
-  },
-  countryChip: {
-    backgroundColor: "#ffffff",
-    borderColor: "#ead8c8",
-    borderRadius: 8,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 10
-  },
-  countryChipSelected: {
-    backgroundColor: "#251a13",
-    borderColor: "#251a13"
-  },
-  countryChipText: {
-    color: "#4d4037",
-    fontSize: 14,
-    fontWeight: "700"
-  },
-  countryChipTextSelected: {
-    color: "#ffffff"
-  },
-  recipeList: {
-    gap: 14,
-    paddingBottom: 28
-  },
-  card: {
-    backgroundColor: "#ffffff",
-    borderColor: "#ead8c8",
-    borderRadius: 8,
-    borderWidth: 1,
-    overflow: "hidden"
-  },
-  cardImage: {
-    height: 170,
-    width: "100%"
-  },
-  cardBody: {
-    padding: 14
-  },
-  cardCountry: {
-    color: "#b4512b",
-    fontSize: 12,
-    fontWeight: "900",
-    marginBottom: 3,
-    textTransform: "uppercase"
-  },
-  cardTitle: {
-    color: "#251a13",
-    fontSize: 21,
-    fontWeight: "900"
-  },
-  cardMeta: {
-    color: "#6f6258",
-    fontSize: 14,
-    marginTop: 5
-  },
   savedRecipeRow: {
-    borderBottomColor: "#f3e5d7",
+    alignItems: "center",
+    borderBottomColor: colors.line,
     borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: 12,
     paddingVertical: 10
+  },
+  savedRecipeImage: {
+    borderRadius: 8,
+    height: 56,
+    width: 56
+  },
+  savedRecipeCopy: {
+    flex: 1
   },
   savedRecipeTitle: {
-    color: "#251a13",
+    color: colors.ink,
     fontSize: 16,
     fontWeight: "900"
   },
   savedRecipeMeta: {
-    color: "#6f6258",
+    color: colors.muted,
     fontSize: 13,
     marginTop: 3
   },
-  tagRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 12
-  },
-  tag: {
-    backgroundColor: "#f3e5d7",
-    borderRadius: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 6
-  },
-  tagText: {
-    color: "#5f3a25",
-    fontSize: 12,
-    fontWeight: "800"
-  },
-  emptyState: {
-    alignItems: "center",
-    backgroundColor: "#ffffff",
-    borderColor: "#ead8c8",
-    borderRadius: 8,
-    borderWidth: 1,
-    padding: 26
-  },
-  emptyTitle: {
-    color: "#251a13",
-    fontSize: 18,
-    fontWeight: "900"
-  },
-  emptyText: {
-    color: "#6f6258",
-    fontSize: 14,
-    marginTop: 6,
-    textAlign: "center"
-  },
-  backButton: {
-    alignSelf: "flex-start",
-    backgroundColor: "#251a13",
-    borderRadius: 8,
-    marginBottom: 14,
-    marginTop: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 10
-  },
-  backButtonText: {
-    color: "#ffffff",
-    fontSize: 14,
-    fontWeight: "800"
-  },
-  detailImage: {
-    borderRadius: 8,
-    height: 250,
-    width: "100%"
-  },
-  detailHeader: {
-    paddingVertical: 18
-  },
-  countryText: {
-    color: "#b4512b",
+  errorText: {
+    color: "#a02c20",
     fontSize: 13,
-    fontWeight: "900",
-    marginBottom: 4,
-    textTransform: "uppercase"
-  },
-  detailTitle: {
-    color: "#251a13",
-    fontSize: 32,
-    fontWeight: "900",
-    lineHeight: 38
-  },
-  detailSubtext: {
-    color: "#6f6258",
-    fontSize: 15,
+    fontWeight: "800",
     marginTop: 8
   },
-  section: {
-    backgroundColor: "#ffffff",
-    borderColor: "#ead8c8",
-    borderRadius: 8,
-    borderWidth: 1,
-    marginBottom: 16,
-    padding: 16
-  },
-  sectionTitle: {
-    color: "#251a13",
-    fontSize: 20,
-    fontWeight: "900",
-    marginBottom: 12
-  },
-  listItem: {
-    flexDirection: "row",
-    gap: 9,
-    marginBottom: 10
-  },
-  bullet: {
-    color: "#b4512b",
-    fontSize: 15,
-    fontWeight: "900",
-    minWidth: 22
-  },
-  listText: {
-    color: "#4d4037",
-    flex: 1,
-    fontSize: 15,
-    lineHeight: 22
+  successText: {
+    color: colors.green,
+    fontSize: 13,
+    fontWeight: "800",
+    marginTop: 8
   }
 });

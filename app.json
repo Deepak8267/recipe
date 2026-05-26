@@ -4,9 +4,12 @@
     "slug": "world-recipes",
     "version": "0.1.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "backgroundColor": "#fff8f0"
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#f5faf7"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -16,7 +19,14 @@
       "bundleIdentifier": "com.worldrecipes.app"
     },
     "android": {
-      "package": "com.worldrecipes.app"
+      "package": "com.worldrecipes.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#f5faf7"
+      }
+    },
+    "web": {
+      "favicon": "./assets/icon.png"
     }
   }
 }

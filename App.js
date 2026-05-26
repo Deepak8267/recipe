@@ -144,6 +144,11 @@ export default function App() {
     setCurrentView(view);
   }
 
+  function openSubscription() {
+    setActiveRecipe(null);
+    setCurrentView(session ? "subscription" : "profile");
+  }
+
   function handleLogout() {
     setSession(null);
     setFavoriteIds([]);
@@ -192,7 +197,7 @@ export default function App() {
               hasSubscription={hasSubscription}
               session={session}
               savedRecipes={savedRecipes}
-              onSubscriptionChange={setHasSubscription}
+              onOpenSubscription={openSubscription}
               onLogout={handleLogout}
               onSessionChange={setSession}
             />
@@ -201,6 +206,16 @@ export default function App() {
           )}
         </ScrollView>
       </SafeAreaView>
+    );
+  }
+
+  if (currentView === "subscription") {
+    return (
+      <SubscriptionScreen
+        hasSubscription={hasSubscription}
+        onBack={() => setCurrentView("recipes")}
+        onPreviewChange={setHasSubscription}
+      />
     );
   }
 
@@ -244,7 +259,7 @@ export default function App() {
               recipeCount={recipes.length}
               selectedCountry={selectedCountry}
               onCountryChange={setSelectedCountry}
-              onLockedRecipe={() => setCurrentView("profile")}
+              onLockedRecipe={openSubscription}
               onOpenRecipe={setActiveRecipe}
               onQueryChange={setQuery}
               onRetry={loadRecipes}
@@ -255,6 +270,7 @@ export default function App() {
               recipe={item}
               saved={favoriteIds.includes(item.id)}
               locked={item.isPremium && !hasSubscription}
+              onLockedPress={openSubscription}
               onPress={() => setActiveRecipe(item)}
               onToggleFavorite={() => toggleFavorite(item.id)}
             />
@@ -648,7 +664,7 @@ function ProfileScreen({
   savedRecipes,
   hasSubscription,
   onLogout,
-  onSubscriptionChange,
+  onOpenSubscription,
   onSessionChange
 }) {
   const [fullName, setFullName] = useState(session.user.fullName);
@@ -685,14 +701,14 @@ function ProfileScreen({
         <Text style={styles.subscriptionText}>
           {hasSubscription
             ? "All premium recipes are unlocked on this device."
-            : "Preview free recipes now. Premium unlock will connect to RevenueCat later."}
+            : "Read free recipes now. Premium recipes stay locked until subscription is active."}
         </Text>
         <Pressable
           style={[styles.primaryButton, hasSubscription && styles.greenButton]}
-          onPress={() => onSubscriptionChange(!hasSubscription)}
+          onPress={onOpenSubscription}
         >
           <Text style={styles.primaryButtonText}>
-            {hasSubscription ? "Switch to free preview" : "Preview premium unlock"}
+            {hasSubscription ? "Manage subscription" : "View premium plan"}
           </Text>
         </Pressable>
       </View>
@@ -747,9 +763,64 @@ function ProfileScreen({
   );
 }
 
-function RecipeCard({ recipe, saved, locked, onPress, onToggleFavorite }) {
+function SubscriptionScreen({ hasSubscription, onBack, onPreviewChange }) {
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar style="dark" />
+      <ScrollView style={styles.screen} showsVerticalScrollIndicator={false}>
+        <View style={styles.paywallContainer}>
+          <Pressable onPress={onBack} style={styles.secondaryButton}>
+            <Text style={styles.secondaryButtonText}>Back to recipes</Text>
+          </Pressable>
+
+          <View style={styles.paywallHero}>
+            <Text style={styles.subscriptionLabel}>World Recipes Premium</Text>
+            <Text style={styles.subscriptionTitle}>
+              Unlock every country, every recipe.
+            </Text>
+            <Text style={styles.subscriptionText}>
+              Start with free recipes, then upgrade when you want the complete
+              recipe library and new premium dishes.
+            </Text>
+            <View style={styles.paywallDivider} />
+            <View style={styles.paywallPriceRow}>
+              <Text style={styles.paywallPrice}>Rs. 99</Text>
+              <Text style={styles.paywallPeriod}>/ month</Text>
+            </View>
+            <Benefit text="Unlimited premium recipe access" />
+            <Benefit text="Recipes from every published country" />
+            <Benefit text="New premium dishes as you add them from admin" />
+            <Pressable
+              style={[styles.primaryButton, hasSubscription && styles.greenButton]}
+              onPress={() => onPreviewChange(!hasSubscription)}
+            >
+              <Text style={styles.primaryButtonText}>
+                {hasSubscription ? "Premium preview active" : "Preview unlock for testing"}
+              </Text>
+            </Pressable>
+            <Text style={styles.paywallFootnote}>
+              Payment will connect to RevenueCat before app store launch.
+            </Text>
+          </View>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function Benefit({ text }) {
+  return (
+    <View style={styles.benefitRow}>
+      <View style={styles.benefitDot} />
+      <Text style={styles.benefitText}>{text}</Text>
+    </View>
+  );
+}
+
+function RecipeCard({ recipe, saved, locked, onLockedPress, onPress, onToggleFavorite }) {
   function handlePress() {
     if (locked) {
+      onLockedPress();
       return;
     }
 
@@ -770,7 +841,9 @@ function RecipeCard({ recipe, saved, locked, onPress, onToggleFavorite }) {
           <Pressable
             onPress={(event) => {
               event.stopPropagation();
-              if (!locked) {
+              if (locked) {
+                onLockedPress();
+              } else {
                 onToggleFavorite();
               }
             }}
@@ -1369,6 +1442,10 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
     paddingTop: 22
   },
+  paywallContainer: {
+    paddingBottom: 28,
+    paddingTop: 18
+  },
   subscriptionPanel: {
     backgroundColor: colors.ink,
     borderRadius: 8,
@@ -1393,6 +1470,61 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
     marginTop: 8
+  },
+  paywallHero: {
+    backgroundColor: colors.ink,
+    borderRadius: 8,
+    marginTop: 16,
+    padding: 18
+  },
+  paywallDivider: {
+    backgroundColor: "rgba(255, 255, 255, 0.16)",
+    height: 1,
+    marginVertical: 18
+  },
+  paywallPriceRow: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    marginBottom: 18
+  },
+  paywallPrice: {
+    color: "#ffffff",
+    fontSize: 34,
+    fontWeight: "900"
+  },
+  paywallPeriod: {
+    color: "#dbe8df",
+    fontSize: 15,
+    fontWeight: "800",
+    marginBottom: 6,
+    marginLeft: 6
+  },
+  benefitRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 12
+  },
+  benefitDot: {
+    backgroundColor: colors.tomato,
+    borderRadius: 6,
+    height: 12,
+    width: 12
+  },
+  benefitText: {
+    color: "#ffffff",
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "800",
+    lineHeight: 21
+  },
+  paywallFootnote: {
+    color: "#dbe8df",
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 18,
+    marginTop: 12,
+    textAlign: "center"
   },
   savedRecipeRow: {
     alignItems: "center",

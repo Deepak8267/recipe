@@ -15,6 +15,7 @@ create table if not exists recipes (
   image_url text,
   tags text[] not null default '{}',
   is_published boolean not null default false,
+  is_premium boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -65,6 +66,8 @@ alter table recipe_steps enable row level security;
 alter table favorite_recipes enable row level security;
 alter table profiles enable row level security;
 alter table admins enable row level security;
+
+alter table recipes add column if not exists is_premium boolean not null default true;
 
 create or replace function is_admin()
 returns boolean

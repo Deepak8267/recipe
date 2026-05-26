@@ -28,6 +28,7 @@ export default function App() {
   const [favoriteIds, setFavoriteIds] = useState([]);
   const [favoriteError, setFavoriteError] = useState(null);
   const [currentView, setCurrentView] = useState("recipes");
+  const [hasSubscription, setHasSubscription] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState("All");
   const [query, setQuery] = useState("");
   const [activeRecipe, setActiveRecipe] = useState(null);
@@ -115,7 +116,24 @@ export default function App() {
     });
   }, [query, recipes, selectedCountry]);
 
-  const featuredRecipe = filteredRecipes[0] ?? recipes[0] ?? null;
+  const featuredRecipe =
+    filteredRecipes.find((recipe) => hasSubscription || !recipe.isPremium) ??
+    filteredRecipes[0] ??
+    recipes.find((recipe) => hasSubscription || !recipe.isPremium) ??
+    recipes[0] ??
+    null;
+  const featuredLocked = Boolean(featuredRecipe?.isPremium && !hasSubscription);
+  const listRecipes = useMemo(
+    () =>
+      filteredRecipes.filter((recipe) => {
+        if (featuredRecipe?.id === recipe.id) {
+          return false;
+        }
+
+        return true;
+      }),
+    [featuredRecipe, filteredRecipes]
+  );
   const savedRecipes = useMemo(
     () => recipes.filter((recipe) => favoriteIds.includes(recipe.id)),
     [favoriteIds, recipes]
@@ -171,8 +189,10 @@ export default function App() {
           {session ? (
             <ProfileScreen
               favoriteError={favoriteError}
+              hasSubscription={hasSubscription}
               session={session}
               savedRecipes={savedRecipes}
+              onSubscriptionChange={setHasSubscription}
               onLogout={handleLogout}
               onSessionChange={setSession}
             />
@@ -208,7 +228,7 @@ export default function App() {
         />
 
         <FlatList
-          data={isLoadingRecipes ? [] : filteredRecipes}
+          data={isLoadingRecipes ? [] : listRecipes}
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.recipeList}
@@ -217,12 +237,14 @@ export default function App() {
               countries={countryStats}
               favoriteError={favoriteError}
               featuredRecipe={featuredRecipe}
+              featuredLocked={featuredLocked}
               isLoading={isLoadingRecipes}
               query={query}
               recipeError={recipeError}
               recipeCount={recipes.length}
               selectedCountry={selectedCountry}
               onCountryChange={setSelectedCountry}
+              onLockedRecipe={() => setCurrentView("profile")}
               onOpenRecipe={setActiveRecipe}
               onQueryChange={setQuery}
               onRetry={loadRecipes}
@@ -232,6 +254,7 @@ export default function App() {
             <RecipeCard
               recipe={item}
               saved={favoriteIds.includes(item.id)}
+              locked={item.isPremium && !hasSubscription}
               onPress={() => setActiveRecipe(item)}
               onToggleFavorite={() => toggleFavorite(item.id)}
             />
@@ -257,12 +280,14 @@ function HomeHeader({
   countries,
   favoriteError,
   featuredRecipe,
+  featuredLocked,
   isLoading,
   query,
   recipeError,
   recipeCount,
   selectedCountry,
   onCountryChange,
+  onLockedRecipe,
   onOpenRecipe,
   onQueryChange,
   onRetry
@@ -292,16 +317,26 @@ function HomeHeader({
 
       {featuredRecipe && !isLoading ? (
         <Pressable
-          style={styles.featuredCard}
-          onPress={() => onOpenRecipe(featuredRecipe)}
+          style={[styles.featuredCard, featuredLocked && styles.lockedCard]}
+          onPress={() =>
+            featuredLocked ? onLockedRecipe() : onOpenRecipe(featuredRecipe)
+          }
         >
           <Image source={{ uri: featuredRecipe.image }} style={styles.featuredImage} />
+          {featuredLocked ? (
+            <View style={styles.lockOverlay}>
+              <Text style={styles.lockBadge}>Premium</Text>
+            </View>
+          ) : null}
           <View style={styles.featuredBody}>
-            <Text style={styles.featuredLabel}>Featured</Text>
+            <Text style={styles.featuredLabel}>
+              {featuredLocked ? "Premium Preview" : "Featured"}
+            </Text>
             <Text style={styles.featuredTitle}>{featuredRecipe.title}</Text>
             <Text style={styles.featuredMeta}>
-              {featuredRecipe.country} - {featuredRecipe.timeMinutes} min -{" "}
-              {featuredRecipe.difficulty}
+              {featuredLocked
+                ? "Subscribe to unlock this recipe"
+                : `${featuredRecipe.country} - ${featuredRecipe.timeMinutes} min - ${featuredRecipe.difficulty}`}
             </Text>
           </View>
         </Pressable>
@@ -611,7 +646,9 @@ function ProfileScreen({
   favoriteError,
   session,
   savedRecipes,
+  hasSubscription,
   onLogout,
+  onSubscriptionChange,
   onSessionChange
 }) {
   const [fullName, setFullName] = useState(session.user.fullName);
@@ -639,6 +676,26 @@ function ProfileScreen({
       <Text style={styles.authTitle}>Hello, {session.user.fullName}</Text>
       <Text style={styles.subtitle}>{session.user.email}</Text>
       {favoriteError ? <Text style={styles.errorText}>{favoriteError}</Text> : null}
+
+      <View style={styles.subscriptionPanel}>
+        <Text style={styles.subscriptionLabel}>Subscription</Text>
+        <Text style={styles.subscriptionTitle}>
+          {hasSubscription ? "Premium active" : "Free plan"}
+        </Text>
+        <Text style={styles.subscriptionText}>
+          {hasSubscription
+            ? "All premium recipes are unlocked on this device."
+            : "Preview free recipes now. Premium unlock will connect to RevenueCat later."}
+        </Text>
+        <Pressable
+          style={[styles.primaryButton, hasSubscription && styles.greenButton]}
+          onPress={() => onSubscriptionChange(!hasSubscription)}
+        >
+          <Text style={styles.primaryButtonText}>
+            {hasSubscription ? "Switch to free preview" : "Preview premium unlock"}
+          </Text>
+        </Pressable>
+      </View>
 
       <View style={styles.panel}>
         <Text style={styles.sectionTitle}>Account</Text>
@@ -690,17 +747,32 @@ function ProfileScreen({
   );
 }
 
-function RecipeCard({ recipe, saved, onPress, onToggleFavorite }) {
+function RecipeCard({ recipe, saved, locked, onPress, onToggleFavorite }) {
+  function handlePress() {
+    if (locked) {
+      return;
+    }
+
+    onPress();
+  }
+
   return (
-    <Pressable style={styles.card} onPress={onPress}>
+    <Pressable style={[styles.card, locked && styles.lockedCard]} onPress={handlePress}>
       <Image source={{ uri: recipe.image }} style={styles.cardImage} />
+      {locked ? (
+        <View style={styles.lockOverlay}>
+          <Text style={styles.lockBadge}>Premium</Text>
+        </View>
+      ) : null}
       <View style={styles.cardBody}>
         <View style={styles.cardHeaderRow}>
           <Text style={styles.cardCountry}>{recipe.country}</Text>
           <Pressable
             onPress={(event) => {
               event.stopPropagation();
-              onToggleFavorite();
+              if (!locked) {
+                onToggleFavorite();
+              }
             }}
             style={[styles.cardSaveButton, saved && styles.cardSaveButtonActive]}
           >
@@ -710,13 +782,15 @@ function RecipeCard({ recipe, saved, onPress, onToggleFavorite }) {
                 saved && styles.cardSaveTextActive
               ]}
             >
-              {saved ? "Saved" : "Save"}
+              {locked ? "Locked" : saved ? "Saved" : "Save"}
             </Text>
           </Pressable>
         </View>
         <Text style={styles.cardTitle}>{recipe.title}</Text>
         <Text style={styles.cardMeta}>
-          {recipe.timeMinutes} min - {recipe.difficulty} - Serves {recipe.servings}
+          {locked
+            ? "Subscribe to unlock this recipe"
+            : `${recipe.timeMinutes} min - ${recipe.difficulty} - Serves ${recipe.servings}`}
         </Text>
         {recipe.tags.length ? (
           <View style={styles.tagRow}>
@@ -955,9 +1029,30 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     overflow: "hidden"
   },
+  lockedCard: {
+    opacity: 0.82
+  },
   cardImage: {
     height: 176,
     width: "100%"
+  },
+  lockOverlay: {
+    alignItems: "flex-end",
+    left: 0,
+    padding: 12,
+    position: "absolute",
+    right: 0,
+    top: 0
+  },
+  lockBadge: {
+    backgroundColor: colors.ink,
+    borderRadius: 8,
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: 10,
+    paddingVertical: 7
   },
   cardBody: {
     padding: 14
@@ -1245,6 +1340,9 @@ const styles = StyleSheet.create({
     marginTop: 16,
     paddingVertical: 14
   },
+  greenButton: {
+    backgroundColor: colors.green
+  },
   primaryButtonDisabled: {
     opacity: 0.65
   },
@@ -1270,6 +1368,31 @@ const styles = StyleSheet.create({
   profileContainer: {
     paddingBottom: 28,
     paddingTop: 22
+  },
+  subscriptionPanel: {
+    backgroundColor: colors.ink,
+    borderRadius: 8,
+    marginBottom: 16,
+    marginTop: 16,
+    padding: 16
+  },
+  subscriptionLabel: {
+    color: "#b8f1d8",
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase"
+  },
+  subscriptionTitle: {
+    color: "#ffffff",
+    fontSize: 22,
+    fontWeight: "900",
+    marginTop: 5
+  },
+  subscriptionText: {
+    color: "#dbe8df",
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 8
   },
   savedRecipeRow: {
     alignItems: "center",

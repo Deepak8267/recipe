@@ -222,6 +222,16 @@ button {
   color: #5f3a25;
 }
 
+.premium {
+  background: #17211c;
+  color: #ffffff;
+}
+
+.free {
+  background: #dff3e5;
+  color: #277142;
+}
+
 @media (max-width: 720px) {
   .topbar,
   .panelHeader {

@@ -12,6 +12,7 @@ A cross-platform recipe app for iOS and Android built with React Native Expo.
 - Save favorite recipes to the user profile
 - Polished mobile UI with loading, empty, and error states
 - App icon and splash screen assets
+- Freemium recipe support with locked premium cards
 - Local recipe data that can later move into Supabase
 
 ## Recommended Full-Stack Setup

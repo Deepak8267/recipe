@@ -16,7 +16,7 @@ export async function getRecipes() {
     };
   }
 
-  const select = [
+  const selectWithPremium = [
     "id",
     "title",
     "region",
@@ -25,19 +25,36 @@ export async function getRecipes() {
     "servings",
     "image_url",
     "tags",
+    "is_premium",
     "countries(name)",
     "recipe_ingredients(position,body)",
     "recipe_steps(position,body)"
   ].join(",");
 
-  const response = await fetch(
+  let response = await fetch(
     `${supabaseUrl}/rest/v1/recipes?select=${encodeURIComponent(
-      select
+      selectWithPremium
     )}&is_published=eq.true&order=created_at.desc`,
     {
       headers: getSupabaseHeaders()
     }
   );
+
+  if (!response.ok) {
+    const fallbackSelect = selectWithPremium
+      .split(",")
+      .filter((field) => field !== "is_premium")
+      .join(",");
+
+    response = await fetch(
+      `${supabaseUrl}/rest/v1/recipes?select=${encodeURIComponent(
+        fallbackSelect
+      )}&is_published=eq.true&order=created_at.desc`,
+      {
+        headers: getSupabaseHeaders()
+      }
+    );
+  }
 
   if (!response.ok) {
     return {
@@ -65,6 +82,7 @@ function mapRecipeFromSupabase(recipe) {
     difficulty: recipe.difficulty,
     servings: recipe.servings,
     image: recipe.image_url || fallbackRecipeImage,
+    isPremium: Boolean(recipe.is_premium),
     tags: recipe.tags ?? [],
     ingredients: sortByPosition(recipe.recipe_ingredients),
     steps: sortByPosition(recipe.recipe_steps)

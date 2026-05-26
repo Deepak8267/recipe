@@ -27,6 +27,7 @@ const elements = {
   ingredientsInput: document.querySelector("#ingredientsInput"),
   stepsInput: document.querySelector("#stepsInput"),
   publishedInput: document.querySelector("#publishedInput"),
+  premiumInput: document.querySelector("#premiumInput"),
   saveButton: document.querySelector("#saveButton"),
   refreshButton: document.querySelector("#refreshButton"),
   recipeList: document.querySelector("#recipeList"),
@@ -126,6 +127,7 @@ async function loadRecipeList() {
       "id",
       "title",
       "is_published",
+      "is_premium",
       "time_minutes",
       "servings",
       "created_at",
@@ -164,8 +166,20 @@ function renderRecipeList(recipes) {
             <span class="${recipe.is_published ? "badge published" : "badge draft"}">
               ${recipe.is_published ? "Published" : "Draft"}
             </span>
+            <span class="${recipe.is_premium ? "badge premium" : "badge free"}">
+              ${recipe.is_premium ? "Premium" : "Free"}
+            </span>
           </div>
           <div class="recipeActions">
+            <button
+              class="secondary"
+              type="button"
+              data-action="premium"
+              data-id="${recipe.id}"
+              data-premium="${recipe.is_premium}"
+            >
+              ${recipe.is_premium ? "Make Free" : "Make Premium"}
+            </button>
             <button
               class="secondary"
               type="button"
@@ -205,6 +219,11 @@ async function handleRecipeAction(button) {
       await updateRecipePublishStatus(recipeId, nextPublished);
     }
 
+    if (action === "premium") {
+      const nextPremium = button.dataset.premium !== "true";
+      await updateRecipePremiumStatus(recipeId, nextPremium);
+    }
+
     if (action === "delete") {
       const confirmed = window.confirm("Delete this recipe?");
       if (!confirmed) {
@@ -228,6 +247,16 @@ async function updateRecipePublishStatus(recipeId, isPublished) {
     authed: true,
     body: {
       is_published: isPublished
+    }
+  });
+}
+
+async function updateRecipePremiumStatus(recipeId, isPremium) {
+  await request(`/rest/v1/recipes?id=eq.${encodeURIComponent(recipeId)}`, {
+    method: "PATCH",
+    authed: true,
+    body: {
+      is_premium: isPremium
     }
   });
 }
@@ -316,7 +345,8 @@ async function createRecipe(countryId, imageUrl) {
       servings: Number(elements.servingsInput.value),
       image_url: imageUrl,
       tags,
-      is_published: elements.publishedInput.checked
+      is_published: elements.publishedInput.checked,
+      is_premium: elements.premiumInput.checked
     }
   });
 
@@ -408,4 +438,5 @@ function clearRecipeForm() {
   elements.ingredientsInput.value = "";
   elements.stepsInput.value = "";
   elements.publishedInput.checked = true;
+  elements.premiumInput.checked = true;
 }

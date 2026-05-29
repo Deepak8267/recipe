@@ -28,6 +28,7 @@ const feedCardHeight = Math.max(620, screenHeight - 132);
 const onboardingFallbackImage =
   "https://images.unsplash.com/photo-1551183053-bf91a1d81141?auto=format&fit=crop&w=1200&q=80";
 const onboardingStorageKey = "world-recipes-onboarding-complete";
+const shoppingListStorageKey = "world-recipes-shopping-list";
 
 export default function App() {
   const [recipes, setRecipes] = useState([]);
@@ -44,10 +45,12 @@ export default function App() {
   const [activeRecipe, setActiveRecipe] = useState(null);
   const [cookingRecipe, setCookingRecipe] = useState(null);
   const [entryStep, setEntryStep] = useState("loading");
+  const [shoppingItems, setShoppingItems] = useState([]);
 
   useEffect(() => {
     loadRecipes();
     loadEntryStep();
+    loadShoppingList();
   }, []);
 
   useEffect(() => {
@@ -109,6 +112,25 @@ export default function App() {
 
     setEntryStep("done");
     setCurrentView(session ? "home" : "profile");
+  }
+
+  async function loadShoppingList() {
+    try {
+      const storedItems = await AsyncStorage.getItem(shoppingListStorageKey);
+      setShoppingItems(storedItems ? JSON.parse(storedItems) : []);
+    } catch {
+      setShoppingItems([]);
+    }
+  }
+
+  async function saveShoppingItems(items) {
+    setShoppingItems(items);
+
+    try {
+      await AsyncStorage.setItem(shoppingListStorageKey, JSON.stringify(items));
+    } catch {
+      // Shopping list still works in memory if storage is unavailable.
+    }
   }
 
   const countries = useMemo(
@@ -240,6 +262,54 @@ export default function App() {
     }
   }
 
+  function addIngredientToShoppingList(recipe, ingredient) {
+    const text = formatIngredientText(ingredient);
+    const existingItem = shoppingItems.find(
+      (item) => item.name.toLowerCase() === text.toLowerCase()
+    );
+
+    if (existingItem) {
+      saveShoppingItems(
+        shoppingItems.map((item) =>
+          item.id === existingItem.id
+            ? {
+                ...item,
+                checked: false,
+                recipes: [...new Set([...item.recipes, recipe.title])]
+              }
+            : item
+        )
+      );
+      return;
+    }
+
+    saveShoppingItems([
+      ...shoppingItems,
+      {
+        checked: false,
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        name: text,
+        recipes: [recipe.title]
+      }
+    ]);
+  }
+
+  function toggleShoppingItem(itemId) {
+    saveShoppingItems(
+      shoppingItems.map((item) =>
+        item.id === itemId ? { ...item, checked: !item.checked } : item
+      )
+    );
+  }
+
+  function deleteShoppingItem(itemId) {
+    saveShoppingItems(shoppingItems.filter((item) => item.id !== itemId));
+  }
+
+  function clearCheckedShoppingItems() {
+    saveShoppingItems(shoppingItems.filter((item) => !item.checked));
+  }
+
   if (entryStep === "loading") {
     return (
       <SafeAreaView style={styles.darkSafeArea}>
@@ -292,6 +362,7 @@ export default function App() {
         recipe={activeRecipe}
         saved={favoriteIds.includes(activeRecipe.id)}
         signedIn={Boolean(session)}
+        onAddIngredient={addIngredientToShoppingList}
         onBack={() => setActiveRecipe(null)}
         onStartCooking={() => setCookingRecipe(activeRecipe)}
         onToggleFavorite={() => toggleFavorite(activeRecipe.id)}
@@ -362,6 +433,15 @@ export default function App() {
         />
       ) : null}
 
+      {currentView === "shopping" ? (
+        <ShoppingListScreen
+          items={shoppingItems}
+          onClearChecked={clearCheckedShoppingItems}
+          onDeleteItem={deleteShoppingItem}
+          onToggleItem={toggleShoppingItem}
+        />
+      ) : null}
+
       {currentView === "profile" ? (
         <ScrollView style={styles.lightScreen} showsVerticalScrollIndicator={false}>
           {session ? (
@@ -370,12 +450,18 @@ export default function App() {
               hasSubscription={hasSubscription}
               session={session}
               savedRecipes={savedRecipes}
+              shoppingCount={shoppingItems.length}
               onOpenSubscription={openSubscription}
               onLogout={handleLogout}
+              onOpenShoppingList={() => setCurrentView("shopping")}
               onSessionChange={setSession}
             />
           ) : (
-            <AuthScreen onSessionChange={setSession} />
+            <AuthScreen
+              shoppingCount={shoppingItems.length}
+              onOpenShoppingList={() => setCurrentView("shopping")}
+              onSessionChange={setSession}
+            />
           )}
         </ScrollView>
       ) : null}
@@ -882,11 +968,76 @@ function FavoritesScreen({ recipes, onOpenRecipe }) {
   );
 }
 
+function ShoppingListScreen({ items, onClearChecked, onDeleteItem, onToggleItem }) {
+  const checkedCount = items.filter((item) => item.checked).length;
+
+  return (
+    <ScrollView style={styles.lightScreen} showsVerticalScrollIndicator={false}>
+      <View style={styles.lightHeader}>
+        <View>
+          <Text style={styles.lightTitle}>Shopping List</Text>
+          <Text style={styles.listSubtitle}>
+            {items.length} items - {checkedCount} checked
+          </Text>
+        </View>
+        <Pressable onPress={onClearChecked} style={styles.clearListButton}>
+          <Text style={styles.clearListText}>Clear checked</Text>
+        </Pressable>
+      </View>
+
+      {items.length ? (
+        items.map((item) => (
+          <View key={item.id} style={styles.shoppingItemRow}>
+            <Pressable
+              onPress={() => onToggleItem(item.id)}
+              style={[styles.shoppingCheck, item.checked && styles.shoppingCheckActive]}
+            >
+              <Text
+                style={[
+                  styles.shoppingCheckText,
+                  item.checked && styles.shoppingCheckTextActive
+                ]}
+              >
+                {item.checked ? "Done" : ""}
+              </Text>
+            </Pressable>
+            <View style={styles.shoppingCopy}>
+              <Text
+                style={[
+                  styles.shoppingTitle,
+                  item.checked && styles.shoppingTitleChecked
+                ]}
+              >
+                {item.name}
+              </Text>
+              <Text style={styles.shoppingMeta}>
+                From {item.recipes.join(", ")}
+              </Text>
+            </View>
+            <Pressable onPress={() => onDeleteItem(item.id)} style={styles.deleteItemButton}>
+              <Text style={styles.deleteItemText}>Remove</Text>
+            </Pressable>
+          </View>
+        ))
+      ) : (
+        <View style={styles.stateBox}>
+          <Text style={styles.emptyTitle}>Your list is empty</Text>
+          <Text style={styles.emptyText}>
+            Open a recipe and tap + beside ingredients to build your shopping list.
+          </Text>
+        </View>
+      )}
+      <View style={styles.bottomSpacer} />
+    </ScrollView>
+  );
+}
+
 function RecipeDetailScreen({
   favoriteError,
   recipe,
   saved,
   signedIn,
+  onAddIngredient,
   onBack,
   onStartCooking,
   onToggleFavorite
@@ -963,7 +1114,7 @@ function RecipeDetailScreen({
           </ScrollView>
 
           {tab === "Ingredients" ? (
-            <IngredientList recipe={recipe} />
+            <IngredientList recipe={recipe} onAddIngredient={onAddIngredient} />
           ) : null}
           {tab === "Steps" ? (
             <RecipeSection title="Cooking Steps" items={recipe.steps} numbered />
@@ -991,10 +1142,18 @@ function RecipeDetailScreen({
   );
 }
 
-function IngredientList({ recipe }) {
+function IngredientList({ recipe, onAddIngredient }) {
+  const [status, setStatus] = useState("");
+
+  function handleAddIngredient(ingredient) {
+    onAddIngredient(recipe, ingredient);
+    setStatus(`${formatIngredientText(ingredient)} added to shopping list.`);
+  }
+
   return (
     <View style={styles.panel}>
       <Text style={styles.sectionTitle}>Ingredients</Text>
+      {status ? <Text style={styles.successText}>{status}</Text> : null}
       {recipe.ingredients.length ? (
         recipe.ingredients.map((ingredient, index) => (
           <View key={`${formatIngredientText(ingredient)}-${index}`} style={styles.ingredientRow}>
@@ -1014,7 +1173,12 @@ function IngredientList({ recipe }) {
                     "Measure to taste"}
               </Text>
             </View>
-            <Text style={styles.addButton}>+</Text>
+            <Pressable
+              onPress={() => handleAddIngredient(ingredient)}
+              style={styles.addIngredientButton}
+            >
+              <Text style={styles.addButton}>+</Text>
+            </Pressable>
           </View>
         ))
       ) : (
@@ -1074,7 +1238,7 @@ function CookingModeScreen({ recipe, onBack }) {
   );
 }
 
-function AuthScreen({ onSessionChange }) {
+function AuthScreen({ shoppingCount, onOpenShoppingList, onSessionChange }) {
   const [mode, setMode] = useState("login");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -1177,6 +1341,15 @@ function AuthScreen({ onSessionChange }) {
           <Text style={styles.socialText}>Apple</Text>
         </View>
       </View>
+      <Pressable onPress={onOpenShoppingList} style={styles.authShoppingCard}>
+        <View>
+          <Text style={styles.authShoppingTitle}>Shopping List</Text>
+          <Text style={styles.authShoppingText}>
+            {shoppingCount} ingredient{shoppingCount === 1 ? "" : "s"} saved on this device
+          </Text>
+        </View>
+        <Text style={styles.menuArrow}>{">"}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -1186,8 +1359,10 @@ function ProfileScreen({
   session,
   savedRecipes,
   hasSubscription,
+  shoppingCount,
   onLogout,
   onOpenSubscription,
+  onOpenShoppingList,
   onSessionChange
 }) {
   const [fullName, setFullName] = useState(session.user.fullName);
@@ -1277,14 +1452,29 @@ function ProfileScreen({
       </View>
 
       <View style={styles.menuPanel}>
-        {["Cooking History", "My Collections", "Shopping List", "Settings", "Help & Support"].map(
-          (item) => (
-            <View key={item} style={styles.menuRow}>
-              <Text style={styles.menuText}>{item}</Text>
-              <Text style={styles.menuArrow}>{">"}</Text>
-            </View>
-          )
-        )}
+        <View style={styles.menuRow}>
+          <Text style={styles.menuText}>Cooking History</Text>
+          <Text style={styles.menuArrow}>{">"}</Text>
+        </View>
+        <View style={styles.menuRow}>
+          <Text style={styles.menuText}>My Collections</Text>
+          <Text style={styles.menuArrow}>{">"}</Text>
+        </View>
+        <Pressable onPress={onOpenShoppingList} style={styles.menuRow}>
+          <View>
+            <Text style={styles.menuText}>Shopping List</Text>
+            <Text style={styles.menuSubtext}>{shoppingCount} saved items</Text>
+          </View>
+          <Text style={styles.menuArrow}>{">"}</Text>
+        </Pressable>
+        <View style={styles.menuRow}>
+          <Text style={styles.menuText}>Settings</Text>
+          <Text style={styles.menuArrow}>{">"}</Text>
+        </View>
+        <View style={styles.menuRow}>
+          <Text style={styles.menuText}>Help & Support</Text>
+          <Text style={styles.menuArrow}>{">"}</Text>
+        </View>
       </View>
       <View style={styles.bottomSpacer} />
     </View>
@@ -2167,6 +2357,14 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "900"
   },
+  addIngredientButton: {
+    alignItems: "center",
+    backgroundColor: colors.accentSoft,
+    borderRadius: 16,
+    height: 34,
+    justifyContent: "center",
+    width: 34
+  },
   stickyCta: {
     backgroundColor: colors.cream,
     borderTopColor: colors.line,
@@ -2326,6 +2524,29 @@ const styles = StyleSheet.create({
     color: colors.ink,
     fontSize: 13,
     fontWeight: "900"
+  },
+  authShoppingCard: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 16,
+    padding: 14,
+    ...shadows.soft
+  },
+  authShoppingTitle: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  authShoppingText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 4
   },
   primaryButton: {
     alignItems: "center",
@@ -2548,9 +2769,95 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "800"
   },
+  menuSubtext: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 3
+  },
   menuArrow: {
     color: colors.muted,
     fontSize: 20,
+    fontWeight: "900"
+  },
+  listSubtitle: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "800",
+    marginTop: 4
+  },
+  clearListButton: {
+    backgroundColor: colors.accentSoft,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
+  clearListText: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  shoppingItemRow: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 12,
+    padding: 12,
+    ...shadows.soft
+  },
+  shoppingCheck: {
+    alignItems: "center",
+    backgroundColor: colors.cream,
+    borderColor: colors.line,
+    borderRadius: 17,
+    borderWidth: 1,
+    height: 34,
+    justifyContent: "center",
+    width: 54
+  },
+  shoppingCheckActive: {
+    backgroundColor: colors.green,
+    borderColor: colors.green
+  },
+  shoppingCheckText: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "900"
+  },
+  shoppingCheckTextActive: {
+    color: "#FFFFFF"
+  },
+  shoppingCopy: {
+    flex: 1
+  },
+  shoppingTitle: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  shoppingTitleChecked: {
+    color: colors.muted,
+    textDecorationLine: "line-through"
+  },
+  shoppingMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 4
+  },
+  deleteItemButton: {
+    backgroundColor: colors.cream,
+    borderRadius: 13,
+    paddingHorizontal: 10,
+    paddingVertical: 8
+  },
+  deleteItemText: {
+    color: colors.accent,
+    fontSize: 11,
     fontWeight: "900"
   },
   stateBox: {

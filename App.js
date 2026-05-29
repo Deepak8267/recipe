@@ -7,6 +7,7 @@ import {
   FlatList,
   Image,
   ImageBackground,
+  Modal,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -1297,8 +1298,12 @@ function RecipeDetailScreen({
   const [reviews, setReviews] = useState([]);
   const [reviewError, setReviewError] = useState("");
   const [isLoadingReviews, setIsLoadingReviews] = useState(true);
+  const [isCollectionSheetOpen, setIsCollectionSheetOpen] = useState(false);
   const tabs = ["Ingredients", "Steps", "Nutrition", "Reviews"];
   const averageRating = getAverageRating(reviews);
+  const savedCollectionCount = collections.filter((collection) =>
+    collection.recipeIds.includes(recipe.id)
+  ).length;
 
   useEffect(() => {
     let mounted = true;
@@ -1394,12 +1399,22 @@ function RecipeDetailScreen({
               <Text style={styles.helperText}>Login first to save this recipe.</Text>
             ) : null}
             {favoriteError ? <Text style={styles.errorText}>{favoriteError}</Text> : null}
-            <CollectionPicker
-              collections={collections}
-              recipe={recipe}
-              onAddRecipeToCollection={onAddRecipeToCollection}
-              onCreateCollection={onCreateCollection}
-            />
+            <Pressable
+              onPress={() => setIsCollectionSheetOpen(true)}
+              style={styles.detailCollectionAction}
+            >
+              <View>
+                <Text style={styles.detailCollectionLabel}>Collections</Text>
+                <Text style={styles.detailCollectionTitle}>
+                  {savedCollectionCount
+                    ? `In ${savedCollectionCount} collection${
+                        savedCollectionCount === 1 ? "" : "s"
+                      }`
+                    : "Add to collection"}
+                </Text>
+              </View>
+              <Text style={styles.detailCollectionPlus}>+</Text>
+            </Pressable>
           </View>
 
           <ScrollView
@@ -1448,6 +1463,39 @@ function RecipeDetailScreen({
           ) : null}
         </View>
       </ScrollView>
+      <Modal
+        animationType="slide"
+        transparent
+        visible={isCollectionSheetOpen}
+        onRequestClose={() => setIsCollectionSheetOpen(false)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setIsCollectionSheetOpen(false)}
+        >
+          <Pressable style={styles.collectionSheet}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.collectionSheetHeader}>
+              <View>
+                <Text style={styles.sheetEyebrow}>Save recipe</Text>
+                <Text style={styles.sheetTitle}>Add to collection</Text>
+              </View>
+              <Pressable
+                onPress={() => setIsCollectionSheetOpen(false)}
+                style={styles.sheetCloseButton}
+              >
+                <Text style={styles.sheetCloseText}>Close</Text>
+              </Pressable>
+            </View>
+            <CollectionPicker
+              collections={collections}
+              recipe={recipe}
+              onAddRecipeToCollection={onAddRecipeToCollection}
+              onCreateCollection={onCreateCollection}
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
       <View style={styles.stickyCta}>
         <Pressable onPress={onStartCooking} style={styles.primaryButton}>
           <Text style={styles.primaryButtonText}>Start Cooking</Text>
@@ -1569,7 +1617,6 @@ function CollectionPicker({
 
   return (
     <View style={styles.detailCollectionBox}>
-      <Text style={styles.reviewFormTitle}>Add to collection</Text>
       {status ? <Text style={styles.successText}>{status}</Text> : null}
       {collections.length ? (
         <ScrollView
@@ -1594,7 +1641,7 @@ function CollectionPicker({
                     alreadyAdded && styles.collectionChipTextActive
                   ]}
                 >
-                  {alreadyAdded ? "Added" : collection.name}
+                  {alreadyAdded ? `${collection.name} added` : collection.name}
                 </Text>
               </Pressable>
             );
@@ -3036,11 +3083,94 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginTop: 8
   },
-  detailCollectionBox: {
+  detailCollectionAction: {
+    alignItems: "center",
     backgroundColor: colors.cream,
-    borderRadius: 16,
+    borderColor: colors.line,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
     marginTop: 16,
-    padding: 12
+    paddingHorizontal: 14,
+    paddingVertical: 12
+  },
+  detailCollectionLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase"
+  },
+  detailCollectionTitle: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "900",
+    marginTop: 3
+  },
+  detailCollectionPlus: {
+    backgroundColor: colors.accent,
+    borderRadius: 16,
+    color: "#FFFFFF",
+    fontSize: 22,
+    fontWeight: "900",
+    height: 34,
+    lineHeight: 32,
+    textAlign: "center",
+    width: 34
+  },
+  modalBackdrop: {
+    backgroundColor: "rgba(25, 17, 12, 0.56)",
+    flex: 1,
+    justifyContent: "flex-end"
+  },
+  collectionSheet: {
+    backgroundColor: colors.cream,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    maxHeight: "78%",
+    padding: 18
+  },
+  sheetHandle: {
+    alignSelf: "center",
+    backgroundColor: "#D8C9BC",
+    borderRadius: 2,
+    height: 4,
+    marginBottom: 14,
+    width: 42
+  },
+  collectionSheetHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 6
+  },
+  sheetEyebrow: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase"
+  },
+  sheetTitle: {
+    color: colors.ink,
+    fontSize: 23,
+    fontWeight: "900",
+    marginTop: 4
+  },
+  sheetCloseButton: {
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 9
+  },
+  sheetCloseText: {
+    color: colors.ink,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  detailCollectionBox: {
+    paddingTop: 4
   },
   collectionChipRow: {
     gap: 8,

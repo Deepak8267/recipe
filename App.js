@@ -39,6 +39,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState("home");
   const [hasSubscription, setHasSubscription] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState("All");
+  const [selectedCategory, setSelectedCategory] = useState("All");
   const [query, setQuery] = useState("");
   const [activeRecipe, setActiveRecipe] = useState(null);
   const [cookingRecipe, setCookingRecipe] = useState(null);
@@ -127,26 +128,49 @@ export default function App() {
     [countries, recipes]
   );
 
+  const categoryStats = useMemo(() => {
+    const categoryNames = [
+      "All",
+      ...new Set(
+        recipes.map((recipe) => recipe.category || inferRecipeCategory(recipe)).filter(Boolean)
+      )
+    ];
+
+    return categoryNames.map((category) => ({
+      category,
+      count:
+        category === "All"
+          ? recipes.length
+          : recipes.filter(
+              (recipe) => (recipe.category || inferRecipeCategory(recipe)) === category
+            ).length
+    }));
+  }, [recipes]);
+
   const filteredRecipes = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
     return recipes.filter((recipe) => {
       const matchesCountry =
         selectedCountry === "All" || recipe.country === selectedCountry;
+      const recipeCategory = recipe.category || inferRecipeCategory(recipe);
+      const matchesCategory =
+        selectedCategory === "All" || recipeCategory === selectedCategory;
       const searchableText = [
         recipe.title,
         recipe.country,
+        recipeCategory,
         recipe.region,
         recipe.difficulty,
         ...recipe.tags,
-        ...recipe.ingredients
+        ...recipe.ingredients.map(formatIngredientText)
       ]
         .join(" ")
         .toLowerCase();
 
-      return matchesCountry && searchableText.includes(normalizedQuery);
+      return matchesCountry && matchesCategory && searchableText.includes(normalizedQuery);
     });
-  }, [query, recipes, selectedCountry]);
+  }, [query, recipes, selectedCategory, selectedCountry]);
 
   const savedRecipes = useMemo(
     () => recipes.filter((recipe) => favoriteIds.includes(recipe.id)),
@@ -317,11 +341,14 @@ export default function App() {
       {currentView === "explore" ? (
         <ExploreScreen
           countries={countryStats}
+          categories={categoryStats}
           freeRecipes={freeRecipes}
           premiumRecipes={premiumRecipes}
           query={query}
           recipes={filteredRecipes}
+          selectedCategory={selectedCategory}
           selectedCountry={selectedCountry}
+          onCategoryChange={setSelectedCategory}
           onCountryChange={setSelectedCountry}
           onOpenRecipe={openRecipe}
           onQueryChange={setQuery}
@@ -389,6 +416,21 @@ function SplashScreen({ image, onGetStarted }) {
       </ImageBackground>
     </SafeAreaView>
   );
+}
+
+function inferRecipeCategory(recipe) {
+  const knownCategories = ["Breakfast", "Lunch", "Dinner", "Desserts", "Healthy", "Vegetarian"];
+  return knownCategories.find((category) => recipe.tags?.includes(category)) ?? "Dinner";
+}
+
+function formatIngredientText(ingredient) {
+  if (typeof ingredient === "string") {
+    return ingredient;
+  }
+
+  return [ingredient.quantity, ingredient.unit, ingredient.name || ingredient.body]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function OnboardingScreen({ images, onComplete, onSkip }) {
@@ -664,18 +706,19 @@ function FeedRecipeCard({
 }
 
 function ExploreScreen({
+  categories,
   countries,
   freeRecipes,
   premiumRecipes,
   query,
   recipes,
+  selectedCategory,
   selectedCountry,
+  onCategoryChange,
   onCountryChange,
   onOpenRecipe,
   onQueryChange
 }) {
-  const categories = ["All", "Breakfast", "Lunch", "Dinner", "Desserts", "Healthy"];
-
   return (
     <ScrollView style={styles.lightScreen} showsVerticalScrollIndicator={false}>
       <View style={styles.lightHeader}>
@@ -696,12 +739,26 @@ function ExploreScreen({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.categoryScroller}
       >
-        {categories.map((category) => (
-          <View key={category} style={styles.categoryChip}>
-            <Text style={styles.categoryIcon}>{category.slice(0, 1)}</Text>
-            <Text style={styles.categoryText}>{category}</Text>
-          </View>
-        ))}
+        {categories.map(({ category, count }) => {
+          const selected = selectedCategory === category;
+          return (
+            <Pressable
+              key={category}
+              onPress={() => onCategoryChange(category)}
+              style={[styles.categoryChip, selected && styles.categoryChipActive]}
+            >
+              <Text style={[styles.categoryIcon, selected && styles.categoryIconActive]}>
+                {category.slice(0, 1)}
+              </Text>
+              <Text style={[styles.categoryText, selected && styles.categoryTextActive]}>
+                {category}
+              </Text>
+              <Text style={[styles.categoryCount, selected && styles.categoryTextActive]}>
+                {count}
+              </Text>
+            </Pressable>
+          );
+        })}
       </ScrollView>
 
       <SectionHeader title="Popular Countries" action={`${countries.length} total`} />
@@ -940,11 +997,22 @@ function IngredientList({ recipe }) {
       <Text style={styles.sectionTitle}>Ingredients</Text>
       {recipe.ingredients.length ? (
         recipe.ingredients.map((ingredient, index) => (
-          <View key={`${ingredient}-${index}`} style={styles.ingredientRow}>
-            <Image source={{ uri: recipe.image }} style={styles.ingredientImage} />
+          <View key={`${formatIngredientText(ingredient)}-${index}`} style={styles.ingredientRow}>
+            <Image
+              source={{ uri: ingredient.image || recipe.image }}
+              style={styles.ingredientImage}
+            />
             <View style={styles.ingredientCopy}>
-              <Text style={styles.ingredientTitle}>{ingredient}</Text>
-              <Text style={styles.ingredientMeta}>Measure to taste</Text>
+              <Text style={styles.ingredientTitle}>
+                {typeof ingredient === "string" ? ingredient : ingredient.name}
+              </Text>
+              <Text style={styles.ingredientMeta}>
+                {typeof ingredient === "string"
+                  ? "Measure to taste"
+                  : [ingredient.quantity, ingredient.unit].filter(Boolean).join(" ") ||
+                    ingredient.body ||
+                    "Measure to taste"}
+              </Text>
             </View>
             <Text style={styles.addButton}>+</Text>
           </View>
@@ -1793,7 +1861,12 @@ const styles = StyleSheet.create({
   },
   categoryChip: {
     alignItems: "center",
-    minWidth: 70
+    borderRadius: 18,
+    minWidth: 78,
+    padding: 6
+  },
+  categoryChipActive: {
+    backgroundColor: colors.accent
   },
   categoryIcon: {
     backgroundColor: colors.accentSoft,
@@ -1808,11 +1881,25 @@ const styles = StyleSheet.create({
     textAlign: "center",
     width: 46
   },
+  categoryIconActive: {
+    backgroundColor: "#FFFFFF",
+    borderColor: "#FFFFFF",
+    color: colors.accent
+  },
   categoryText: {
     color: colors.ink,
     fontSize: 11,
     fontWeight: "800",
     marginTop: 7
+  },
+  categoryTextActive: {
+    color: "#FFFFFF"
+  },
+  categoryCount: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "800",
+    marginTop: 3
   },
   countryScroller: {
     gap: 12,

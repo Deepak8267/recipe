@@ -4,9 +4,16 @@ create table if not exists countries (
   created_at timestamptz not null default now()
 );
 
+create table if not exists categories (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists recipes (
   id uuid primary key default gen_random_uuid(),
   country_id uuid not null references countries(id) on delete restrict,
+  category_id uuid references categories(id) on delete set null,
   title text not null,
   region text,
   difficulty text not null,
@@ -24,7 +31,11 @@ create table if not exists recipe_ingredients (
   id uuid primary key default gen_random_uuid(),
   recipe_id uuid not null references recipes(id) on delete cascade,
   position integer not null,
-  body text not null
+  body text not null,
+  name text,
+  quantity text,
+  unit text,
+  image_url text
 );
 
 create table if not exists recipe_steps (
@@ -60,6 +71,7 @@ values ('recipe-images', 'recipe-images', true)
 on conflict (id) do update set public = true;
 
 alter table countries enable row level security;
+alter table categories enable row level security;
 alter table recipes enable row level security;
 alter table recipe_ingredients enable row level security;
 alter table recipe_steps enable row level security;
@@ -68,6 +80,21 @@ alter table profiles enable row level security;
 alter table admins enable row level security;
 
 alter table recipes add column if not exists is_premium boolean not null default true;
+alter table recipes add column if not exists category_id uuid references categories(id) on delete set null;
+alter table recipe_ingredients add column if not exists name text;
+alter table recipe_ingredients add column if not exists quantity text;
+alter table recipe_ingredients add column if not exists unit text;
+alter table recipe_ingredients add column if not exists image_url text;
+
+insert into categories (name)
+values
+  ('Breakfast'),
+  ('Lunch'),
+  ('Dinner'),
+  ('Desserts'),
+  ('Healthy'),
+  ('Vegetarian')
+on conflict (name) do nothing;
 
 create or replace function is_admin()
 returns boolean
@@ -86,6 +113,9 @@ $$;
 drop policy if exists "Published countries are readable" on countries;
 drop policy if exists "Admins can create countries" on countries;
 drop policy if exists "Admins can update countries" on countries;
+drop policy if exists "Categories are readable" on categories;
+drop policy if exists "Admins can create categories" on categories;
+drop policy if exists "Admins can update categories" on categories;
 drop policy if exists "Published recipes are readable" on recipes;
 drop policy if exists "Admins can read all recipes" on recipes;
 drop policy if exists "Admins can create recipes" on recipes;
@@ -117,6 +147,19 @@ create policy "Admins can create countries"
 
 create policy "Admins can update countries"
   on countries for update
+  using (is_admin())
+  with check (is_admin());
+
+create policy "Categories are readable"
+  on categories for select
+  using (true);
+
+create policy "Admins can create categories"
+  on categories for insert
+  with check (is_admin());
+
+create policy "Admins can update categories"
+  on categories for update
   using (is_admin())
   with check (is_admin());
 

@@ -96,6 +96,12 @@ label {
   margin-top: 14px;
 }
 
+.helpText {
+  color: #8a7668;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 input,
 select,
 textarea {

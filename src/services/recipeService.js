@@ -27,7 +27,8 @@ export async function getRecipes() {
     "tags",
     "is_premium",
     "countries(name)",
-    "recipe_ingredients(position,body)",
+    "categories(name)",
+    "recipe_ingredients(position,body,name,quantity,unit,image_url)",
     "recipe_steps(position,body)"
   ].join(",");
 
@@ -41,10 +42,20 @@ export async function getRecipes() {
   );
 
   if (!response.ok) {
-    const fallbackSelect = selectWithPremium
-      .split(",")
-      .filter((field) => field !== "is_premium")
-      .join(",");
+    const fallbackSelect = [
+      "id",
+      "title",
+      "region",
+      "difficulty",
+      "time_minutes",
+      "servings",
+      "image_url",
+      "tags",
+      "is_premium",
+      "countries(name)",
+      "recipe_ingredients(position,body)",
+      "recipe_steps(position,body)"
+    ].join(",");
 
     response = await fetch(
       `${supabaseUrl}/rest/v1/recipes?select=${encodeURIComponent(
@@ -77,6 +88,7 @@ function mapRecipeFromSupabase(recipe) {
     id: recipe.id,
     title: recipe.title,
     country: recipe.countries?.name ?? "Unknown",
+    category: recipe.categories?.name ?? inferCategory(recipe.tags),
     region: recipe.region ?? "",
     timeMinutes: recipe.time_minutes,
     difficulty: recipe.difficulty,
@@ -84,9 +96,30 @@ function mapRecipeFromSupabase(recipe) {
     image: recipe.image_url || fallbackRecipeImage,
     isPremium: Boolean(recipe.is_premium),
     tags: recipe.tags ?? [],
-    ingredients: sortByPosition(recipe.recipe_ingredients),
+    ingredients: sortIngredients(recipe.recipe_ingredients),
     steps: sortByPosition(recipe.recipe_steps)
   };
+}
+
+function inferCategory(tags = []) {
+  const knownCategories = ["Breakfast", "Lunch", "Dinner", "Desserts", "Healthy", "Vegetarian"];
+  return knownCategories.find((category) => tags.includes(category)) ?? "Dinner";
+}
+
+function sortIngredients(items = []) {
+  return [...items].sort((first, second) => first.position - second.position).map((item) => {
+    if (!item.name && !item.quantity && !item.unit && !item.image_url) {
+      return item.body;
+    }
+
+    return {
+      body: item.body,
+      image: item.image_url,
+      name: item.name || item.body,
+      quantity: item.quantity || "",
+      unit: item.unit || ""
+    };
+  });
 }
 
 function sortByPosition(items = []) {

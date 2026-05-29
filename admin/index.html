@@ -64,6 +64,17 @@
             <input id="countryInput" type="text" placeholder="India" />
           </label>
           <label>
+            Category
+            <select id="categoryInput">
+              <option>Breakfast</option>
+              <option>Lunch</option>
+              <option selected>Dinner</option>
+              <option>Desserts</option>
+              <option>Healthy</option>
+              <option>Vegetarian</option>
+            </select>
+          </label>
+          <label>
             Region
             <input id="regionInput" type="text" placeholder="North India" />
           </label>
@@ -102,7 +113,12 @@
 
         <label>
           Ingredients, one per line
-          <textarea id="ingredientsInput" rows="8"></textarea>
+          <textarea
+            id="ingredientsInput"
+            rows="8"
+            placeholder="Chicken Breast | 250 | g | https://optional-image-url"
+          ></textarea>
+          <span class="helpText">Format: name | quantity | unit | optional image URL</span>
         </label>
 
         <label>

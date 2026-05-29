@@ -17,6 +17,7 @@ const elements = {
   sessionText: document.querySelector("#sessionText"),
   titleInput: document.querySelector("#titleInput"),
   countryInput: document.querySelector("#countryInput"),
+  categoryInput: document.querySelector("#categoryInput"),
   regionInput: document.querySelector("#regionInput"),
   difficultyInput: document.querySelector("#difficultyInput"),
   timeInput: document.querySelector("#timeInput"),
@@ -91,7 +92,7 @@ async function handleSaveRecipe() {
   elements.saveButton.disabled = true;
 
   try {
-    const ingredients = getLines(elements.ingredientsInput.value);
+    const ingredients = getIngredientLines(elements.ingredientsInput.value);
     const steps = getLines(elements.stepsInput.value);
 
     if (!elements.titleInput.value.trim() || !elements.countryInput.value.trim()) {
@@ -104,8 +105,9 @@ async function handleSaveRecipe() {
 
     setStatus(elements.recipeStatus, "Uploading recipe...", "");
     const country = await findOrCreateCountry(elements.countryInput.value.trim());
+    const category = await findOrCreateCategory(elements.categoryInput.value);
     const imageUrl = await getRecipeImageUrl();
-    const recipe = await createRecipe(country.id, imageUrl);
+    const recipe = await createRecipe(country.id, category.id, imageUrl);
     await createRecipeLines("recipe_ingredients", recipe.id, ingredients);
     await createRecipeLines("recipe_steps", recipe.id, steps);
 
@@ -131,7 +133,8 @@ async function loadRecipeList() {
       "time_minutes",
       "servings",
       "created_at",
-      "countries(name)"
+      "countries(name)",
+      "categories(name)"
     ].join(",");
     const recipes = await request(
       `/rest/v1/recipes?select=${encodeURIComponent(select)}&order=created_at.desc`,
@@ -160,7 +163,9 @@ function renderRecipeList(recipes) {
         <article class="recipeRow">
           <div>
             <h3>${escapeHtml(recipe.title)}</h3>
-            <p>${escapeHtml(recipe.countries?.name || "Unknown")} - ${
+            <p>${escapeHtml(recipe.countries?.name || "Unknown")} - ${escapeHtml(
+        recipe.categories?.name || "Uncategorized"
+      )} - ${
         recipe.time_minutes
       } min - Serves ${recipe.servings}</p>
             <span class="${recipe.is_published ? "badge published" : "badge draft"}">
@@ -292,6 +297,30 @@ async function findOrCreateCountry(countryName) {
   return created[0];
 }
 
+async function findOrCreateCategory(categoryName) {
+  const existing = await request(
+    `/rest/v1/categories?select=id,name&name=eq.${encodeURIComponent(categoryName)}`,
+    {
+      authed: true
+    }
+  );
+
+  if (existing.length) {
+    return existing[0];
+  }
+
+  const created = await request("/rest/v1/categories", {
+    method: "POST",
+    authed: true,
+    prefer: "return=representation",
+    body: {
+      name: categoryName
+    }
+  });
+
+  return created[0];
+}
+
 async function getRecipeImageUrl() {
   const imageFile = elements.imageFileInput.files[0];
 
@@ -326,7 +355,7 @@ async function getRecipeImageUrl() {
   return `${config.supabaseUrl}/storage/v1/object/public/recipe-images/${filePath}`;
 }
 
-async function createRecipe(countryId, imageUrl) {
+async function createRecipe(countryId, categoryId, imageUrl) {
   const tags = elements.tagsInput.value
     .split(",")
     .map((tag) => tag.trim())
@@ -338,6 +367,7 @@ async function createRecipe(countryId, imageUrl) {
     prefer: "return=representation",
     body: {
       country_id: countryId,
+      category_id: categoryId,
       title: elements.titleInput.value.trim(),
       region: elements.regionInput.value.trim(),
       difficulty: elements.difficultyInput.value,
@@ -354,15 +384,37 @@ async function createRecipe(countryId, imageUrl) {
 }
 
 async function createRecipeLines(tableName, recipeId, lines) {
-  await request(`/rest/v1/${tableName}`, {
-    method: "POST",
-    authed: true,
-    body: lines.map((line, index) => ({
-      recipe_id: recipeId,
-      position: index + 1,
-      body: line
-    }))
-  });
+  const body = lines.map((line, index) => ({
+    recipe_id: recipeId,
+    position: index + 1,
+    body: line.body || line,
+    name: line.name,
+    quantity: line.quantity,
+    unit: line.unit,
+    image_url: line.imageUrl
+  }));
+
+  try {
+    await request(`/rest/v1/${tableName}`, {
+      method: "POST",
+      authed: true,
+      body
+    });
+  } catch (error) {
+    if (tableName !== "recipe_ingredients") {
+      throw error;
+    }
+
+    await request(`/rest/v1/${tableName}`, {
+      method: "POST",
+      authed: true,
+      body: body.map((line) => ({
+        recipe_id: line.recipe_id,
+        position: line.position,
+        body: line.body
+      }))
+    });
+  }
 }
 
 async function request(path, options = {}) {
@@ -401,6 +453,22 @@ function getLines(value) {
     .filter(Boolean);
 }
 
+function getIngredientLines(value) {
+  return getLines(value).map((line) => {
+    const [name, quantity = "", unit = "", imageUrl = ""] = line
+      .split("|")
+      .map((part) => part.trim());
+
+    return {
+      body: [quantity, unit, name].filter(Boolean).join(" "),
+      imageUrl,
+      name,
+      quantity,
+      unit
+    };
+  });
+}
+
 function slugify(value) {
   return value
     .toLowerCase()
@@ -429,6 +497,7 @@ function setStatus(element, message, type = "") {
 function clearRecipeForm() {
   elements.titleInput.value = "";
   elements.countryInput.value = "";
+  elements.categoryInput.value = "Dinner";
   elements.regionInput.value = "";
   elements.timeInput.value = "30";
   elements.servingsInput.value = "2";

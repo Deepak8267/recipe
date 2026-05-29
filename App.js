@@ -22,6 +22,7 @@ import {
   saveFavorite
 } from "./src/services/favoriteService";
 import { getRecipes } from "./src/services/recipeService";
+import { getRecipeReviews, saveRecipeReview } from "./src/services/reviewService";
 
 const screenHeight = Dimensions.get("window").height;
 const feedCardHeight = Math.max(620, screenHeight - 132);
@@ -361,6 +362,7 @@ export default function App() {
         favoriteError={favoriteError}
         recipe={activeRecipe}
         saved={favoriteIds.includes(activeRecipe.id)}
+        session={session}
         signedIn={Boolean(session)}
         onAddIngredient={addIngredientToShoppingList}
         onBack={() => setActiveRecipe(null)}
@@ -517,6 +519,15 @@ function formatIngredientText(ingredient) {
   return [ingredient.quantity, ingredient.unit, ingredient.name || ingredient.body]
     .filter(Boolean)
     .join(" ");
+}
+
+function getAverageRating(reviews) {
+  if (!reviews.length) {
+    return 0;
+  }
+
+  const total = reviews.reduce((sum, review) => sum + review.rating, 0);
+  return total / reviews.length;
 }
 
 function OnboardingScreen({ images, onComplete, onSkip }) {
@@ -1036,6 +1047,7 @@ function RecipeDetailScreen({
   favoriteError,
   recipe,
   saved,
+  session,
   signedIn,
   onAddIngredient,
   onBack,
@@ -1043,7 +1055,56 @@ function RecipeDetailScreen({
   onToggleFavorite
 }) {
   const [tab, setTab] = useState("Ingredients");
+  const [reviews, setReviews] = useState([]);
+  const [reviewError, setReviewError] = useState("");
+  const [isLoadingReviews, setIsLoadingReviews] = useState(true);
   const tabs = ["Ingredients", "Steps", "Nutrition", "Reviews"];
+  const averageRating = getAverageRating(reviews);
+
+  useEffect(() => {
+    let mounted = true;
+
+    setIsLoadingReviews(true);
+    setReviewError("");
+
+    getRecipeReviews(recipe.id)
+      .then((nextReviews) => {
+        if (mounted) {
+          setReviews(nextReviews);
+        }
+      })
+      .catch((error) => {
+        if (mounted) {
+          setReviewError(error.message);
+        }
+      })
+      .finally(() => {
+        if (mounted) {
+          setIsLoadingReviews(false);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [recipe.id]);
+
+  async function handleSaveReview({ rating, comment }) {
+    const savedReview = await saveRecipeReview({
+      comment,
+      rating,
+      recipeId: recipe.id,
+      session
+    });
+
+    setReviews((currentReviews) => {
+      const withoutUserReview = currentReviews.filter(
+        (review) => review.userId !== savedReview.userId
+      );
+
+      return [savedReview, ...withoutUserReview];
+    });
+  }
 
   return (
     <SafeAreaView style={styles.lightSafeArea}>
@@ -1081,8 +1142,14 @@ function RecipeDetailScreen({
               {recipe.region || "A premium recipe with step-by-step guidance."}
             </Text>
             <View style={styles.ratingRow}>
-              <Text style={styles.ratingText}>4.8</Text>
-              <Text style={styles.ratingCopy}>Loved by home cooks</Text>
+              <Text style={styles.ratingText}>
+                {reviews.length ? averageRating.toFixed(1) : "New"}
+              </Text>
+              <Text style={styles.ratingCopy}>
+                {reviews.length
+                  ? `${reviews.length} review${reviews.length === 1 ? "" : "s"}`
+                  : "Be the first to review"}
+              </Text>
             </View>
             {!signedIn ? (
               <Text style={styles.helperText}>Login first to save this recipe.</Text>
@@ -1126,9 +1193,12 @@ function RecipeDetailScreen({
             />
           ) : null}
           {tab === "Reviews" ? (
-            <InfoPanel
-              title="Reviews"
-              body="Ratings and reviews are planned for the next database upgrade."
+            <ReviewsPanel
+              isLoading={isLoadingReviews}
+              reviewError={reviewError}
+              reviews={reviews}
+              session={session}
+              onSaveReview={handleSaveReview}
             />
           ) : null}
         </View>
@@ -1184,6 +1254,120 @@ function IngredientList({ recipe, onAddIngredient }) {
       ) : (
         <Text style={styles.emptyText}>Ingredients will appear here.</Text>
       )}
+    </View>
+  );
+}
+
+function ReviewsPanel({ isLoading, reviewError, reviews, session, onSaveReview }) {
+  const userReview = session
+    ? reviews.find((review) => review.userId === session.user.id)
+    : null;
+
+  return (
+    <View style={styles.panel}>
+      <Text style={styles.sectionTitle}>Reviews</Text>
+      {reviewError ? <Text style={styles.errorText}>{reviewError}</Text> : null}
+      {isLoading ? (
+        <Text style={styles.emptyText}>Loading reviews...</Text>
+      ) : null}
+      {session ? (
+        <ReviewForm existingReview={userReview} onSaveReview={onSaveReview} />
+      ) : (
+        <Text style={styles.helperText}>Login to rate and review this recipe.</Text>
+      )}
+      <View style={styles.reviewList}>
+        {reviews.length ? (
+          reviews.map((review) => <ReviewRow key={review.id} review={review} />)
+        ) : (
+          <Text style={styles.emptyText}>No reviews yet.</Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
+function ReviewForm({ existingReview, onSaveReview }) {
+  const [rating, setRating] = useState(existingReview?.rating || 5);
+  const [comment, setComment] = useState(existingReview?.comment || "");
+  const [status, setStatus] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    setRating(existingReview?.rating || 5);
+    setComment(existingReview?.comment || "");
+  }, [existingReview?.comment, existingReview?.rating]);
+
+  async function handleSubmit() {
+    setIsSaving(true);
+    setStatus("");
+
+    try {
+      await onSaveReview({ comment, rating });
+      setStatus("Review saved.");
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <View style={styles.reviewForm}>
+      <Text style={styles.reviewFormTitle}>
+        {existingReview ? "Update your review" : "Add your review"}
+      </Text>
+      <View style={styles.ratingPicker}>
+        {[1, 2, 3, 4, 5].map((value) => (
+          <Pressable
+            key={value}
+            onPress={() => setRating(value)}
+            style={[styles.ratingButton, rating >= value && styles.ratingButtonActive]}
+          >
+            <Text
+              style={[
+                styles.ratingButtonText,
+                rating >= value && styles.ratingButtonTextActive
+              ]}
+            >
+              {value}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      <TextInput
+        value={comment}
+        onChangeText={setComment}
+        placeholder="Share a short cooking note"
+        placeholderTextColor={colors.muted}
+        style={styles.reviewInput}
+        multiline
+      />
+      {status ? (
+        <Text style={status === "Review saved." ? styles.successText : styles.errorText}>
+          {status}
+        </Text>
+      ) : null}
+      <Pressable
+        onPress={handleSubmit}
+        disabled={isSaving}
+        style={[styles.primaryButton, isSaving && styles.disabledButton]}
+      >
+        <Text style={styles.primaryButtonText}>
+          {isSaving ? "Saving..." : existingReview ? "Update review" : "Post review"}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function ReviewRow({ review }) {
+  return (
+    <View style={styles.reviewRow}>
+      <View style={styles.reviewHeader}>
+        <Text style={styles.reviewName}>{review.userName}</Text>
+        <Text style={styles.reviewRating}>{review.rating}/5</Text>
+      </View>
+      {review.comment ? <Text style={styles.reviewComment}>{review.comment}</Text> : null}
     </View>
   );
 }
@@ -2364,6 +2548,87 @@ const styles = StyleSheet.create({
     height: 34,
     justifyContent: "center",
     width: 34
+  },
+  reviewForm: {
+    backgroundColor: colors.cream,
+    borderRadius: 16,
+    marginTop: 12,
+    padding: 12
+  },
+  reviewFormTitle: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  ratingPicker: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 12
+  },
+  ratingButton: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 15,
+    borderWidth: 1,
+    height: 34,
+    justifyContent: "center",
+    width: 38
+  },
+  ratingButtonActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent
+  },
+  ratingButtonText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  ratingButtonTextActive: {
+    color: "#FFFFFF"
+  },
+  reviewInput: {
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 14,
+    borderWidth: 1,
+    color: colors.ink,
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 12,
+    minHeight: 88,
+    padding: 12,
+    textAlignVertical: "top"
+  },
+  reviewList: {
+    gap: 10,
+    marginTop: 14
+  },
+  reviewRow: {
+    backgroundColor: colors.cream,
+    borderRadius: 14,
+    padding: 12
+  },
+  reviewHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  reviewName: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  reviewRating: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  reviewComment: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 8
   },
   stickyCta: {
     backgroundColor: colors.cream,

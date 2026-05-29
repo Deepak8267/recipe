@@ -1,4 +1,5 @@
 import { StatusBar } from "expo-status-bar";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -26,6 +27,7 @@ const screenHeight = Dimensions.get("window").height;
 const feedCardHeight = Math.max(620, screenHeight - 132);
 const onboardingFallbackImage =
   "https://images.unsplash.com/photo-1551183053-bf91a1d81141?auto=format&fit=crop&w=1200&q=80";
+const onboardingStorageKey = "world-recipes-onboarding-complete";
 
 export default function App() {
   const [recipes, setRecipes] = useState([]);
@@ -40,10 +42,11 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [activeRecipe, setActiveRecipe] = useState(null);
   const [cookingRecipe, setCookingRecipe] = useState(null);
-  const [entryStep, setEntryStep] = useState("splash");
+  const [entryStep, setEntryStep] = useState("loading");
 
   useEffect(() => {
     loadRecipes();
+    loadEntryStep();
   }, []);
 
   useEffect(() => {
@@ -85,6 +88,26 @@ export default function App() {
     } finally {
       setIsLoadingRecipes(false);
     }
+  }
+
+  async function loadEntryStep() {
+    try {
+      const hasCompletedOnboarding = await AsyncStorage.getItem(onboardingStorageKey);
+      setEntryStep(hasCompletedOnboarding === "true" ? "done" : "splash");
+    } catch {
+      setEntryStep("splash");
+    }
+  }
+
+  async function completeEntryFlow() {
+    try {
+      await AsyncStorage.setItem(onboardingStorageKey, "true");
+    } catch {
+      // Continue even if storage is unavailable.
+    }
+
+    setEntryStep("done");
+    setCurrentView(session ? "home" : "profile");
   }
 
   const countries = useMemo(
@@ -193,6 +216,19 @@ export default function App() {
     }
   }
 
+  if (entryStep === "loading") {
+    return (
+      <SafeAreaView style={styles.darkSafeArea}>
+        <StatusBar style="light" />
+        <View style={styles.feedState}>
+          <ActivityIndicator color={colors.accent} size="large" />
+          <Text style={styles.feedStateTitle}>World Recipes</Text>
+          <Text style={styles.feedStateText}>Preparing your kitchen.</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   if (entryStep === "splash") {
     return (
       <SplashScreen
@@ -210,14 +246,8 @@ export default function App() {
           recipes[1]?.image ?? onboardingFallbackImage,
           recipes[2]?.image ?? recipes[0]?.image ?? onboardingFallbackImage
         ]}
-        onComplete={() => {
-          setEntryStep("done");
-          setCurrentView(session ? "home" : "profile");
-        }}
-        onSkip={() => {
-          setEntryStep("done");
-          setCurrentView(session ? "home" : "profile");
-        }}
+        onComplete={completeEntryFlow}
+        onSkip={completeEntryFlow}
       />
     );
   }
@@ -272,8 +302,13 @@ export default function App() {
           recipeError={recipeError}
           recipes={filteredRecipes.length ? filteredRecipes : recipes}
           session={session}
+          query={query}
+          totalRecipes={recipes.length}
+          onOpenExplore={() => setCurrentView("explore")}
           onOpenRecipe={openRecipe}
           onOpenSubscription={openSubscription}
+          onOpenProfile={() => setCurrentView("profile")}
+          onQueryChange={setQuery}
           onRetry={loadRecipes}
           onToggleFavorite={toggleFavorite}
         />
@@ -448,8 +483,13 @@ function HomeFeed({
   recipeError,
   recipes,
   session,
+  query,
+  totalRecipes,
+  onOpenExplore,
   onOpenRecipe,
   onOpenSubscription,
+  onOpenProfile,
+  onQueryChange,
   onRetry,
   onToggleFavorite
 }) {
@@ -500,9 +540,15 @@ function HomeFeed({
           isSaved={favoriteIds.includes(item.id)}
           locked={item.isPremium && !hasSubscription}
           recipe={item}
+          recipeCount={recipes.length}
+          query={query}
           signedIn={Boolean(session)}
+          totalRecipes={totalRecipes}
+          onOpenExplore={onOpenExplore}
           onOpenRecipe={onOpenRecipe}
           onOpenSubscription={onOpenSubscription}
+          onOpenProfile={onOpenProfile}
+          onQueryChange={onQueryChange}
           onToggleFavorite={onToggleFavorite}
         />
       )}
@@ -516,9 +562,15 @@ function FeedRecipeCard({
   isSaved,
   locked,
   recipe,
+  recipeCount,
+  query,
   signedIn,
+  totalRecipes,
+  onOpenExplore,
   onOpenRecipe,
   onOpenSubscription,
+  onOpenProfile,
+  onQueryChange,
   onToggleFavorite
 }) {
   return (
@@ -536,14 +588,25 @@ function FeedRecipeCard({
             </Text>
             <Text style={styles.feedBrand}>World Recipes</Text>
           </View>
-          <View style={styles.profileBubble}>
-            <Text style={styles.profileBubbleText}>WR</Text>
+          <View style={styles.feedTopActions}>
+            <Pressable onPress={onOpenExplore} style={styles.notificationBubble}>
+              <Text style={styles.notificationText}>Bell</Text>
+            </Pressable>
+            <Pressable onPress={onOpenProfile} style={styles.profileBubble}>
+              <Text style={styles.profileBubbleText}>WR</Text>
+            </Pressable>
           </View>
         </View>
 
-        <View style={styles.feedSearch}>
-          <Text style={styles.feedSearchText}>Search recipes, ingredients...</Text>
-        </View>
+        <TextInput
+          value={query}
+          onChangeText={onQueryChange}
+          onSubmitEditing={onOpenExplore}
+          placeholder="Search recipes, ingredients..."
+          placeholderTextColor="#D8D0CA"
+          returnKeyType="search"
+          style={styles.feedSearchInput}
+        />
 
         <View style={styles.feedBody}>
           <View style={styles.feedBadgeRow}>
@@ -561,6 +624,9 @@ function FeedRecipeCard({
               </Text>
             </Pressable>
           </View>
+          <Text style={styles.feedProgressText}>
+            {index + 1} / {recipeCount} in feed - {totalRecipes} total recipes
+          </Text>
 
           <Text style={styles.feedTitle}>{recipe.title}</Text>
           <View style={styles.feedMetaRow}>
@@ -1510,14 +1576,37 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "900"
   },
-  feedSearch: {
+  feedTopActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10
+  },
+  notificationBubble: {
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.13)",
+    borderColor: "rgba(255, 255, 255, 0.22)",
+    borderRadius: 20,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: "center",
+    width: 48
+  },
+  notificationText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "900"
+  },
+  feedSearchInput: {
     backgroundColor: "rgba(255, 255, 255, 0.13)",
     borderColor: "rgba(255, 255, 255, 0.12)",
     borderRadius: 18,
     borderWidth: 1,
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700",
+    height: 48,
     marginTop: 14,
     paddingHorizontal: 16,
-    paddingVertical: 12,
     zIndex: 1
   },
   feedSearchText: {
@@ -1534,6 +1623,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 12
+  },
+  feedProgressText: {
+    color: "#F3E7DE",
+    fontSize: 12,
+    fontWeight: "800",
+    marginBottom: 8
   },
   trendingBadge: {
     backgroundColor: "rgba(0, 0, 0, 0.54)",

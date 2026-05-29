@@ -24,6 +24,8 @@ import { getRecipes } from "./src/services/recipeService";
 
 const screenHeight = Dimensions.get("window").height;
 const feedCardHeight = Math.max(620, screenHeight - 132);
+const onboardingFallbackImage =
+  "https://images.unsplash.com/photo-1551183053-bf91a1d81141?auto=format&fit=crop&w=1200&q=80";
 
 export default function App() {
   const [recipes, setRecipes] = useState([]);
@@ -38,6 +40,7 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [activeRecipe, setActiveRecipe] = useState(null);
   const [cookingRecipe, setCookingRecipe] = useState(null);
+  const [entryStep, setEntryStep] = useState("splash");
 
   useEffect(() => {
     loadRecipes();
@@ -190,6 +193,35 @@ export default function App() {
     }
   }
 
+  if (entryStep === "splash") {
+    return (
+      <SplashScreen
+        image={recipes[0]?.image ?? onboardingFallbackImage}
+        onGetStarted={() => setEntryStep("onboarding")}
+      />
+    );
+  }
+
+  if (entryStep === "onboarding") {
+    return (
+      <OnboardingScreen
+        images={[
+          recipes[0]?.image ?? onboardingFallbackImage,
+          recipes[1]?.image ?? onboardingFallbackImage,
+          recipes[2]?.image ?? recipes[0]?.image ?? onboardingFallbackImage
+        ]}
+        onComplete={() => {
+          setEntryStep("done");
+          setCurrentView(session ? "home" : "profile");
+        }}
+        onSkip={() => {
+          setEntryStep("done");
+          setCurrentView(session ? "home" : "profile");
+        }}
+      />
+    );
+  }
+
   if (cookingRecipe) {
     return (
       <CookingModeScreen
@@ -292,6 +324,119 @@ export default function App() {
         onChange={changeView}
       />
     </SafeAreaView>
+  );
+}
+
+function SplashScreen({ image, onGetStarted }) {
+  return (
+    <SafeAreaView style={styles.darkSafeArea}>
+      <StatusBar style="light" />
+      <ImageBackground source={{ uri: image }} style={styles.entryScreen}>
+        <View style={styles.entryOverlay} />
+        <View style={styles.splashContent}>
+          <View style={styles.chefMark}>
+            <Text style={styles.chefMarkText}>WR</Text>
+          </View>
+          <Text style={styles.splashTitle}>
+            Cook.{"\n"}Discover.{"\n"}
+            <Text style={styles.accentText}>Enjoy.</Text>
+          </Text>
+          <Text style={styles.splashSubtitle}>
+            Delicious recipes, curated for your next meal.
+          </Text>
+        </View>
+        <View style={styles.entryFooter}>
+          <Pressable onPress={onGetStarted} style={styles.entryButton}>
+            <Text style={styles.entryButtonText}>Get Started</Text>
+          </Pressable>
+          <Text style={styles.entryHint}>Already have an account? Login after setup</Text>
+        </View>
+      </ImageBackground>
+    </SafeAreaView>
+  );
+}
+
+function OnboardingScreen({ images, onComplete, onSkip }) {
+  const [index, setIndex] = useState(0);
+  const slides = [
+    {
+      title: "Discover amazing recipes",
+      body: "Explore thousands of recipes from around the world."
+    },
+    {
+      title: "Cook with confidence",
+      body: "Step by step instructions make cooking feel easy."
+    },
+    {
+      title: "Save and enjoy favorites",
+      body: "Keep your best dishes close whenever you want."
+    }
+  ];
+  const slide = slides[index];
+  const isLast = index === slides.length - 1;
+
+  function goNext() {
+    if (isLast) {
+      onComplete();
+      return;
+    }
+
+    setIndex((value) => value + 1);
+  }
+
+  return (
+    <SafeAreaView style={styles.darkSafeArea}>
+      <StatusBar style="light" />
+      <ImageBackground source={{ uri: images[index] }} style={styles.entryScreen}>
+        <View style={styles.entryOverlay} />
+        <Pressable onPress={onSkip} style={styles.skipButton}>
+          <Text style={styles.skipText}>Skip</Text>
+        </Pressable>
+        <View style={styles.onboardingCopy}>
+          <Text style={styles.onboardingTitle}>
+            {highlightOnboardingTitle(slide.title)}
+          </Text>
+          <Text style={styles.onboardingBody}>{slide.body}</Text>
+        </View>
+        <View style={styles.entryFooter}>
+          <View style={styles.onboardingDots}>
+            {slides.map((item, dotIndex) => (
+              <View
+                key={item.title}
+                style={[
+                  styles.onboardingDot,
+                  dotIndex === index && styles.onboardingDotActive
+                ]}
+              />
+            ))}
+          </View>
+          <Pressable onPress={goNext} style={styles.entryButton}>
+            <Text style={styles.entryButtonText}>
+              {isLast ? "Get Started" : "Next"}
+            </Text>
+          </Pressable>
+        </View>
+      </ImageBackground>
+    </SafeAreaView>
+  );
+}
+
+function highlightOnboardingTitle(title) {
+  const wordsToHighlight = ["recipes", "confidence", "favorites"];
+  const match = wordsToHighlight.find((word) => title.includes(word));
+
+  if (!match) {
+    return title;
+  }
+
+  const [before, after] = title.split(match);
+
+  return (
+    <>
+      {before}
+      <Text style={styles.accentText}>{match}</Text>
+      {after}
+    </>
   );
 }
 
@@ -1195,6 +1340,123 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 18,
     paddingTop: 16
+  },
+  entryScreen: {
+    flex: 1,
+    justifyContent: "space-between",
+    padding: 24
+  },
+  entryOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0, 0, 0, 0.58)"
+  },
+  splashContent: {
+    marginTop: 112,
+    zIndex: 1
+  },
+  chefMark: {
+    alignItems: "center",
+    borderColor: "rgba(255, 255, 255, 0.72)",
+    borderRadius: 26,
+    borderWidth: 1,
+    height: 52,
+    justifyContent: "center",
+    marginBottom: 24,
+    width: 52
+  },
+  chefMarkText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  splashTitle: {
+    color: "#FFFFFF",
+    fontSize: 42,
+    fontWeight: "900",
+    lineHeight: 48
+  },
+  accentText: {
+    color: colors.accent
+  },
+  splashSubtitle: {
+    color: "#F5E8DE",
+    fontSize: 16,
+    fontWeight: "700",
+    lineHeight: 24,
+    marginTop: 22,
+    maxWidth: 260
+  },
+  entryFooter: {
+    paddingBottom: 24,
+    zIndex: 1
+  },
+  entryButton: {
+    alignItems: "center",
+    backgroundColor: colors.accent,
+    borderRadius: 16,
+    paddingVertical: 16
+  },
+  entryButtonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  entryHint: {
+    color: "#F5E8DE",
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 14,
+    textAlign: "center"
+  },
+  skipButton: {
+    alignSelf: "flex-end",
+    marginTop: 18,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    zIndex: 1
+  },
+  skipText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  onboardingCopy: {
+    alignItems: "center",
+    marginTop: 76,
+    zIndex: 1
+  },
+  onboardingTitle: {
+    color: "#FFFFFF",
+    fontSize: 31,
+    fontWeight: "900",
+    lineHeight: 38,
+    maxWidth: 300,
+    textAlign: "center"
+  },
+  onboardingBody: {
+    color: "#F5E8DE",
+    fontSize: 15,
+    fontWeight: "700",
+    lineHeight: 23,
+    marginTop: 14,
+    maxWidth: 270,
+    textAlign: "center"
+  },
+  onboardingDots: {
+    alignSelf: "center",
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 18
+  },
+  onboardingDot: {
+    backgroundColor: "rgba(255, 255, 255, 0.48)",
+    borderRadius: 5,
+    height: 8,
+    width: 8
+  },
+  onboardingDotActive: {
+    backgroundColor: colors.accent,
+    width: 20
   },
   feedList: {
     paddingBottom: 92

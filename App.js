@@ -456,10 +456,21 @@ export default function App() {
   }
 
   if (activeRecipe) {
+    const activeRecipeCategory = activeRecipe.category || inferRecipeCategory(activeRecipe);
+    const relatedRecipes = recipes
+      .filter((recipe) => recipe.id !== activeRecipe.id)
+      .filter(
+        (recipe) =>
+          recipe.country === activeRecipe.country ||
+          (recipe.category || inferRecipeCategory(recipe)) === activeRecipeCategory
+      )
+      .slice(0, 4);
+
     return (
       <RecipeDetailScreen
         favoriteError={favoriteError}
         recipe={activeRecipe}
+        relatedRecipes={relatedRecipes}
         saved={favoriteIds.includes(activeRecipe.id)}
         session={session}
         signedIn={Boolean(session)}
@@ -468,6 +479,7 @@ export default function App() {
         onAddRecipeToCollection={addRecipeToCollection}
         onBack={() => setActiveRecipe(null)}
         onCreateCollection={createCollection}
+        onOpenRelatedRecipe={openRecipe}
         onStartCooking={() => setCookingRecipe(activeRecipe)}
         onToggleFavorite={() => toggleFavorite(activeRecipe.id)}
       />
@@ -630,6 +642,35 @@ function formatIngredientText(ingredient) {
   return [ingredient.quantity, ingredient.unit, ingredient.name || ingredient.body]
     .filter(Boolean)
     .join(" ");
+}
+
+function formatIngredientAmount(ingredient, multiplier = 1) {
+  if (typeof ingredient === "string") {
+    return "Measure to taste";
+  }
+
+  const amount = [scaleIngredientQuantity(ingredient.quantity, multiplier), ingredient.unit]
+    .filter(Boolean)
+    .join(" ");
+
+  return amount || ingredient.body || "Measure to taste";
+}
+
+function scaleIngredientQuantity(quantity, multiplier) {
+  if (!quantity) {
+    return "";
+  }
+
+  const numericQuantity = Number.parseFloat(quantity);
+
+  if (Number.isNaN(numericQuantity)) {
+    return quantity;
+  }
+
+  const scaledQuantity = numericQuantity * multiplier;
+  return Number.isInteger(scaledQuantity)
+    ? `${scaledQuantity}`
+    : `${Number(scaledQuantity.toFixed(2))}`;
 }
 
 function getAverageRating(reviews) {
@@ -1284,6 +1325,7 @@ function RecipeDetailScreen({
   collections,
   favoriteError,
   recipe,
+  relatedRecipes,
   saved,
   session,
   signedIn,
@@ -1291,6 +1333,7 @@ function RecipeDetailScreen({
   onAddRecipeToCollection,
   onBack,
   onCreateCollection,
+  onOpenRelatedRecipe,
   onStartCooking,
   onToggleFavorite
 }) {
@@ -1299,8 +1342,11 @@ function RecipeDetailScreen({
   const [reviewError, setReviewError] = useState("");
   const [isLoadingReviews, setIsLoadingReviews] = useState(true);
   const [isCollectionSheetOpen, setIsCollectionSheetOpen] = useState(false);
+  const [servings, setServings] = useState(recipe.servings || 2);
   const tabs = ["Ingredients", "Steps", "Nutrition", "Reviews"];
   const averageRating = getAverageRating(reviews);
+  const baseServings = recipe.servings || 2;
+  const servingsMultiplier = servings / baseServings;
   const savedCollectionCount = collections.filter((collection) =>
     collection.recipeIds.includes(recipe.id)
   ).length;
@@ -1350,6 +1396,14 @@ function RecipeDetailScreen({
     });
   }
 
+  function decreaseServings() {
+    setServings((value) => Math.max(1, value - 1));
+  }
+
+  function increaseServings() {
+    setServings((value) => Math.min(12, value + 1));
+  }
+
   return (
     <SafeAreaView style={styles.lightSafeArea}>
       <StatusBar style="dark" />
@@ -1376,24 +1430,40 @@ function RecipeDetailScreen({
 
         <View style={styles.detailContent}>
           <View style={styles.detailSheet}>
+            <Text style={styles.detailKicker}>
+              {(recipe.category || inferRecipeCategory(recipe)).toUpperCase()} RECIPE
+            </Text>
             <Text style={styles.detailTitle}>{recipe.title}</Text>
-            <View style={styles.feedMetaRow}>
-              <Text style={styles.detailMeta}>{recipe.timeMinutes} min</Text>
-              <Text style={styles.detailMeta}>{recipe.difficulty}</Text>
-              <Text style={styles.detailMeta}>{recipe.country}</Text>
-            </View>
             <Text style={styles.detailSubtext}>
               {recipe.region || "A premium recipe with step-by-step guidance."}
             </Text>
-            <View style={styles.ratingRow}>
-              <Text style={styles.ratingText}>
-                {reviews.length ? averageRating.toFixed(1) : "New"}
-              </Text>
-              <Text style={styles.ratingCopy}>
-                {reviews.length
-                  ? `${reviews.length} review${reviews.length === 1 ? "" : "s"}`
-                  : "Be the first to review"}
-              </Text>
+            <View style={styles.detailStatsGrid}>
+              <DetailStat label="Time" value={`${recipe.timeMinutes} min`} />
+              <DetailStat label="Level" value={recipe.difficulty} />
+              <DetailStat label="Country" value={recipe.country} />
+              <DetailStat
+                label="Rating"
+                value={reviews.length ? averageRating.toFixed(1) : "New"}
+                subtext={
+                  reviews.length
+                    ? `${reviews.length} review${reviews.length === 1 ? "" : "s"}`
+                    : "No reviews"
+                }
+              />
+            </View>
+            <View style={styles.servingPanel}>
+              <View>
+                <Text style={styles.detailCollectionLabel}>Servings</Text>
+                <Text style={styles.servingTitle}>{servings} portions</Text>
+              </View>
+              <View style={styles.servingControls}>
+                <Pressable onPress={decreaseServings} style={styles.servingButton}>
+                  <Text style={styles.servingButtonText}>-</Text>
+                </Pressable>
+                <Pressable onPress={increaseServings} style={styles.servingButton}>
+                  <Text style={styles.servingButtonText}>+</Text>
+                </Pressable>
+              </View>
             </View>
             {!signedIn ? (
               <Text style={styles.helperText}>Login first to save this recipe.</Text>
@@ -1441,7 +1511,12 @@ function RecipeDetailScreen({
           </ScrollView>
 
           {tab === "Ingredients" ? (
-            <IngredientList recipe={recipe} onAddIngredient={onAddIngredient} />
+            <IngredientList
+              recipe={recipe}
+              servings={servings}
+              multiplier={servingsMultiplier}
+              onAddIngredient={onAddIngredient}
+            />
           ) : null}
           {tab === "Steps" ? (
             <RecipeSection title="Cooking Steps" items={recipe.steps} numbered />
@@ -1459,6 +1534,12 @@ function RecipeDetailScreen({
               reviews={reviews}
               session={session}
               onSaveReview={handleSaveReview}
+            />
+          ) : null}
+          {relatedRecipes.length ? (
+            <RelatedRecipes
+              recipes={relatedRecipes}
+              onOpenRecipe={onOpenRelatedRecipe}
             />
           ) : null}
         </View>
@@ -1505,7 +1586,17 @@ function RecipeDetailScreen({
   );
 }
 
-function IngredientList({ recipe, onAddIngredient }) {
+function DetailStat({ label, value, subtext }) {
+  return (
+    <View style={styles.detailStatCard}>
+      <Text style={styles.detailStatValue}>{value}</Text>
+      <Text style={styles.detailStatLabel}>{label}</Text>
+      {subtext ? <Text style={styles.detailStatSubtext}>{subtext}</Text> : null}
+    </View>
+  );
+}
+
+function IngredientList({ recipe, servings, multiplier, onAddIngredient }) {
   const [status, setStatus] = useState("");
 
   function handleAddIngredient(ingredient) {
@@ -1515,7 +1606,13 @@ function IngredientList({ recipe, onAddIngredient }) {
 
   return (
     <View style={styles.panel}>
-      <Text style={styles.sectionTitle}>Ingredients</Text>
+      <View style={styles.panelHeader}>
+        <View>
+          <Text style={styles.sectionTitle}>Ingredients</Text>
+          <Text style={styles.panelSubtitle}>Adjusted for {servings} portions</Text>
+        </View>
+        <Text style={styles.panelBadge}>{recipe.ingredients.length}</Text>
+      </View>
       {status ? <Text style={styles.successText}>{status}</Text> : null}
       {recipe.ingredients.length ? (
         recipe.ingredients.map((ingredient, index) => (
@@ -1529,11 +1626,7 @@ function IngredientList({ recipe, onAddIngredient }) {
                 {typeof ingredient === "string" ? ingredient : ingredient.name}
               </Text>
               <Text style={styles.ingredientMeta}>
-                {typeof ingredient === "string"
-                  ? "Measure to taste"
-                  : [ingredient.quantity, ingredient.unit].filter(Boolean).join(" ") ||
-                    ingredient.body ||
-                    "Measure to taste"}
+                {formatIngredientAmount(ingredient, multiplier)}
               </Text>
             </View>
             <Pressable
@@ -2129,17 +2222,58 @@ function CompactRecipeRow({ recipe, saved, onPress }) {
 function RecipeSection({ title, items, numbered = false }) {
   return (
     <View style={styles.panel}>
-      <Text style={styles.sectionTitle}>{title}</Text>
+      <View style={styles.panelHeader}>
+        <View>
+          <Text style={styles.sectionTitle}>{title}</Text>
+          <Text style={styles.panelSubtitle}>Follow each step in order</Text>
+        </View>
+        <Text style={styles.panelBadge}>{items.length}</Text>
+      </View>
       {items.length ? (
         items.map((item, index) => (
-          <View key={`${title}-${item}-${index}`} style={styles.listItem}>
-            <Text style={styles.bullet}>{numbered ? `${index + 1}` : "-"}</Text>
-            <Text style={styles.listText}>{item}</Text>
+          <View key={`${title}-${item}-${index}`} style={styles.stepCard}>
+            <Text style={styles.stepNumber}>{numbered ? `${index + 1}` : "-"}</Text>
+            <View style={styles.stepCopy}>
+              <Text style={styles.stepLabel}>Step {index + 1}</Text>
+              <Text style={styles.stepText}>{item}</Text>
+            </View>
           </View>
         ))
       ) : (
         <Text style={styles.emptyText}>Not added yet.</Text>
       )}
+    </View>
+  );
+}
+
+function RelatedRecipes({ recipes, onOpenRecipe }) {
+  return (
+    <View style={styles.relatedSection}>
+      <View style={styles.panelHeader}>
+        <View>
+          <Text style={styles.sectionTitle}>You may also like</Text>
+          <Text style={styles.panelSubtitle}>More dishes from nearby tastes</Text>
+        </View>
+      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.relatedScroller}
+      >
+        {recipes.map((recipe) => (
+          <Pressable
+            key={recipe.id}
+            onPress={() => onOpenRecipe(recipe)}
+            style={styles.relatedCard}
+          >
+            <Image source={{ uri: recipe.image }} style={styles.relatedImage} />
+            <Text style={styles.relatedTitle}>{recipe.title}</Text>
+            <Text style={styles.relatedMeta}>
+              {recipe.timeMinutes} min - {recipe.country}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
     </View>
   );
 }
@@ -2893,7 +3027,8 @@ const styles = StyleSheet.create({
   },
   detailContent: {
     backgroundColor: colors.cream,
-    padding: 18
+    padding: 18,
+    paddingBottom: 112
   },
   detailSheet: {
     backgroundColor: colors.card,
@@ -2903,6 +3038,12 @@ const styles = StyleSheet.create({
     marginTop: -64,
     padding: 18,
     ...shadows.soft
+  },
+  detailKicker: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: "900",
+    marginBottom: 7
   },
   detailTitle: {
     color: colors.ink,
@@ -2920,6 +3061,76 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     marginTop: 12
+  },
+  detailStatsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 16
+  },
+  detailStatCard: {
+    backgroundColor: colors.cream,
+    borderColor: colors.line,
+    borderRadius: 16,
+    borderWidth: 1,
+    minHeight: 74,
+    padding: 11,
+    width: "47%"
+  },
+  detailStatValue: {
+    color: colors.ink,
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  detailStatLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "900",
+    marginTop: 5,
+    textTransform: "uppercase"
+  },
+  detailStatSubtext: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 3
+  },
+  servingPanel: {
+    alignItems: "center",
+    backgroundColor: colors.cream,
+    borderColor: colors.line,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12
+  },
+  servingTitle: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "900",
+    marginTop: 3
+  },
+  servingControls: {
+    flexDirection: "row",
+    gap: 8
+  },
+  servingButton: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 16,
+    borderWidth: 1,
+    height: 34,
+    justifyContent: "center",
+    width: 34
+  },
+  servingButtonText: {
+    color: colors.accent,
+    fontSize: 20,
+    fontWeight: "900"
   },
   ratingRow: {
     alignItems: "center",
@@ -2963,12 +3174,15 @@ const styles = StyleSheet.create({
   },
   ingredientRow: {
     alignItems: "center",
-    backgroundColor: colors.cream,
-    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    borderColor: colors.line,
+    borderRadius: 16,
+    borderWidth: 1,
     flexDirection: "row",
     gap: 12,
     marginTop: 10,
-    padding: 10
+    padding: 10,
+    ...shadows.soft
   },
   ingredientImage: {
     borderRadius: 12,
@@ -3585,6 +3799,30 @@ const styles = StyleSheet.create({
     padding: 16,
     ...shadows.soft
   },
+  panelHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 4
+  },
+  panelSubtitle: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 4
+  },
+  panelBadge: {
+    backgroundColor: colors.accentSoft,
+    borderRadius: 14,
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: "900",
+    minWidth: 34,
+    overflow: "hidden",
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    textAlign: "center"
+  },
   menuPanel: {
     backgroundColor: colors.card,
     borderColor: colors.line,
@@ -3734,6 +3972,80 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     lineHeight: 22
+  },
+  stepCard: {
+    backgroundColor: "#FFFFFF",
+    borderColor: colors.line,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 12,
+    padding: 13
+  },
+  stepNumber: {
+    backgroundColor: colors.ink,
+    borderRadius: 17,
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "900",
+    height: 34,
+    lineHeight: 34,
+    overflow: "hidden",
+    textAlign: "center",
+    width: 34
+  },
+  stepCopy: {
+    flex: 1
+  },
+  stepLabel: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase"
+  },
+  stepText: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "700",
+    lineHeight: 22,
+    marginTop: 4
+  },
+  relatedSection: {
+    marginBottom: 18,
+    marginTop: 2
+  },
+  relatedScroller: {
+    gap: 12,
+    paddingBottom: 4,
+    paddingTop: 8,
+    paddingRight: 18
+  },
+  relatedCard: {
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 10,
+    width: 154,
+    ...shadows.soft
+  },
+  relatedImage: {
+    borderRadius: 14,
+    height: 104,
+    width: "100%"
+  },
+  relatedTitle: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: "900",
+    marginTop: 9
+  },
+  relatedMeta: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 5
   },
   helperText: {
     color: colors.muted,

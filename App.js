@@ -529,6 +529,7 @@ export default function App() {
         <ExploreScreen
           countries={countryStats}
           categories={categoryStats}
+          favoriteIds={favoriteIds}
           freeRecipes={freeRecipes}
           premiumRecipes={premiumRecipes}
           query={query}
@@ -632,6 +633,20 @@ function SplashScreen({ image, onGetStarted }) {
 function inferRecipeCategory(recipe) {
   const knownCategories = ["Breakfast", "Lunch", "Dinner", "Desserts", "Healthy", "Vegetarian"];
   return knownCategories.find((category) => recipe.tags?.includes(category)) ?? "Dinner";
+}
+
+function getCategoryIcon(category) {
+  const icons = {
+    All: "All",
+    Breakfast: "AM",
+    Lunch: "Noon",
+    Dinner: "PM",
+    Desserts: "Sweet",
+    Healthy: "Fit",
+    Vegetarian: "Veg"
+  };
+
+  return icons[category] ?? category.slice(0, 3);
 }
 
 function formatIngredientText(ingredient) {
@@ -957,6 +972,7 @@ function FeedRecipeCard({
 function ExploreScreen({
   categories,
   countries,
+  favoriteIds,
   freeRecipes,
   premiumRecipes,
   query,
@@ -968,19 +984,86 @@ function ExploreScreen({
   onOpenRecipe,
   onQueryChange
 }) {
+  const [recipeFilter, setRecipeFilter] = useState("All");
+  const filterOptions = [
+    { label: "All", count: recipes.length },
+    { label: "Free", count: recipes.filter((recipe) => !recipe.isPremium).length },
+    { label: "Premium", count: recipes.filter((recipe) => recipe.isPremium).length },
+    {
+      label: "Saved",
+      count: recipes.filter((recipe) => favoriteIds.includes(recipe.id)).length
+    }
+  ];
+  const filteredExploreRecipes = recipes.filter((recipe) => {
+    if (recipeFilter === "Free") {
+      return !recipe.isPremium;
+    }
+
+    if (recipeFilter === "Premium") {
+      return recipe.isPremium;
+    }
+
+    if (recipeFilter === "Saved") {
+      return favoriteIds.includes(recipe.id);
+    }
+
+    return true;
+  });
+  const hasActiveFilters =
+    query.trim() ||
+    selectedCategory !== "All" ||
+    selectedCountry !== "All" ||
+    recipeFilter !== "All";
+
   return (
     <ScrollView style={styles.lightScreen} showsVerticalScrollIndicator={false}>
-      <View style={styles.lightHeader}>
-        <Text style={styles.lightTitle}>Explore</Text>
-        <Text style={styles.lightIcon}>Search</Text>
+      <View style={styles.exploreHero}>
+        <View>
+          <Text style={styles.exploreEyebrow}>Discover</Text>
+          <Text style={styles.lightTitle}>Explore recipes</Text>
+          <Text style={styles.exploreSubtitle}>
+            Search by country, ingredient, category, or premium access.
+          </Text>
+        </View>
+        <View style={styles.exploreCountBadge}>
+          <Text style={styles.exploreCount}>{recipes.length}</Text>
+          <Text style={styles.exploreCountLabel}>found</Text>
+        </View>
       </View>
-      <TextInput
-        value={query}
-        onChangeText={onQueryChange}
-        placeholder="Search recipes, ingredients..."
-        placeholderTextColor={colors.muted}
-        style={styles.searchInput}
-      />
+      <View style={styles.exploreSearchWrap}>
+        <Text style={styles.exploreSearchIcon}>Search</Text>
+        <TextInput
+          value={query}
+          onChangeText={onQueryChange}
+          placeholder="Recipe, country, ingredient..."
+          placeholderTextColor={colors.muted}
+          style={styles.exploreSearchInput}
+        />
+      </View>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.filterScroller}
+      >
+        {filterOptions.map((option) => {
+          const selected = recipeFilter === option.label;
+          return (
+            <Pressable
+              key={option.label}
+              onPress={() => setRecipeFilter(option.label)}
+              style={[styles.filterPill, selected && styles.filterPillActive]}
+            >
+              <Text style={[styles.filterText, selected && styles.filterTextActive]}>
+                {option.label}
+              </Text>
+              <Text style={[styles.filterCount, selected && styles.filterTextActive]}>
+                {option.count}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
 
       <SectionHeader title="Categories" action="Filters" />
       <ScrollView
@@ -997,7 +1080,7 @@ function ExploreScreen({
               style={[styles.categoryChip, selected && styles.categoryChipActive]}
             >
               <Text style={[styles.categoryIcon, selected && styles.categoryIconActive]}>
-                {category.slice(0, 1)}
+                {getCategoryIcon(category)}
               </Text>
               <Text style={[styles.categoryText, selected && styles.categoryTextActive]}>
                 {category}
@@ -1045,14 +1128,29 @@ function ExploreScreen({
         })}
       </ScrollView>
 
-      <SectionHeader title="Trending Recipes" action="See all" />
-      {recipes.map((recipe) => (
-        <CompactRecipeRow
-          key={recipe.id}
-          recipe={recipe}
-          onPress={() => onOpenRecipe(recipe)}
-        />
-      ))}
+      <SectionHeader
+        title="Recipe Results"
+        action={`${filteredExploreRecipes.length} shown`}
+      />
+      {filteredExploreRecipes.length ? (
+        filteredExploreRecipes.map((recipe) => (
+          <ExploreRecipeRow
+            key={recipe.id}
+            recipe={recipe}
+            saved={favoriteIds.includes(recipe.id)}
+            onPress={() => onOpenRecipe(recipe)}
+          />
+        ))
+      ) : (
+        <View style={styles.stateBox}>
+          <Text style={styles.emptyTitle}>No recipes found</Text>
+          <Text style={styles.emptyText}>
+            {hasActiveFilters
+              ? "Try changing the search, country, category, or filter."
+              : "Add recipes from the admin panel and they will appear here."}
+          </Text>
+        </View>
+      )}
 
       <SectionHeader title="Free To Start" action={`${freeRecipes.length} recipes`} />
       <HorizontalRecipeStrip recipes={freeRecipes} onOpenRecipe={onOpenRecipe} />
@@ -2219,6 +2317,33 @@ function CompactRecipeRow({ recipe, saved, onPress }) {
   );
 }
 
+function ExploreRecipeRow({ recipe, saved, onPress }) {
+  return (
+    <Pressable onPress={onPress} style={styles.exploreRecipeRow}>
+      <Image source={{ uri: recipe.image }} style={styles.exploreRecipeImage} />
+      <View style={styles.exploreRecipeCopy}>
+        <View style={styles.exploreRecipeTopline}>
+          <Text style={styles.exploreRecipeCountry}>{recipe.country}</Text>
+          <Text
+            style={[
+              styles.exploreRecipeBadge,
+              recipe.isPremium ? styles.premiumBadge : styles.freeBadge
+            ]}
+          >
+            {recipe.isPremium ? "Premium" : "Free"}
+          </Text>
+        </View>
+        <Text style={styles.exploreRecipeTitle}>{recipe.title}</Text>
+        <Text style={styles.exploreRecipeMeta}>
+          {recipe.timeMinutes} min - {recipe.difficulty} -{" "}
+          {recipe.category || inferRecipeCategory(recipe)}
+        </Text>
+      </View>
+      <Text style={styles.exploreRecipeAction}>{saved ? "Saved" : "View"}</Text>
+    </Pressable>
+  );
+}
+
 function RecipeSection({ title, items, numbered = false }) {
   return (
     <View style={styles.panel}>
@@ -2731,6 +2856,108 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "900"
   },
+  exploreHero: {
+    alignItems: "flex-start",
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 22,
+    borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 14,
+    padding: 16,
+    ...shadows.soft
+  },
+  exploreEyebrow: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: "900",
+    marginBottom: 4,
+    textTransform: "uppercase"
+  },
+  exploreSubtitle: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 20,
+    marginTop: 7,
+    maxWidth: 250
+  },
+  exploreCountBadge: {
+    alignItems: "center",
+    backgroundColor: colors.ink,
+    borderRadius: 18,
+    minWidth: 58,
+    paddingHorizontal: 10,
+    paddingVertical: 9
+  },
+  exploreCount: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  exploreCountLabel: {
+    color: "#EADDD3",
+    fontSize: 10,
+    fontWeight: "800",
+    marginTop: 2
+  },
+  exploreSearchWrap: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    height: 54,
+    paddingHorizontal: 14,
+    ...shadows.soft
+  },
+  exploreSearchIcon: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  exploreSearchInput: {
+    color: colors.ink,
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "700"
+  },
+  filterScroller: {
+    gap: 10,
+    paddingRight: 18,
+    paddingTop: 14
+  },
+  filterPill: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10
+  },
+  filterPillActive: {
+    backgroundColor: colors.ink,
+    borderColor: colors.ink
+  },
+  filterText: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  filterCount: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  filterTextActive: {
+    color: "#FFFFFF"
+  },
   searchInput: {
     backgroundColor: colors.card,
     borderColor: colors.line,
@@ -2765,9 +2992,13 @@ const styles = StyleSheet.create({
   },
   categoryChip: {
     alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.line,
     borderRadius: 18,
+    borderWidth: 1,
     minWidth: 78,
-    padding: 6
+    padding: 8,
+    ...shadows.soft
   },
   categoryChipActive: {
     backgroundColor: colors.accent
@@ -2778,10 +3009,11 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     color: colors.accent,
-    fontSize: 16,
+    fontSize: 11,
     fontWeight: "900",
     height: 46,
-    paddingTop: 12,
+    lineHeight: 44,
+    overflow: "hidden",
     textAlign: "center",
     width: 46
   },
@@ -2895,6 +3127,72 @@ const styles = StyleSheet.create({
     marginTop: 6
   },
   compactSave: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  exploreRecipeRow: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 12,
+    padding: 10,
+    ...shadows.soft
+  },
+  exploreRecipeImage: {
+    borderRadius: 16,
+    height: 82,
+    width: 92
+  },
+  exploreRecipeCopy: {
+    flex: 1
+  },
+  exploreRecipeTopline: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 5
+  },
+  exploreRecipeCountry: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase"
+  },
+  exploreRecipeBadge: {
+    borderRadius: 10,
+    fontSize: 10,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: 8,
+    paddingVertical: 4
+  },
+  premiumBadge: {
+    backgroundColor: colors.ink,
+    color: "#FFFFFF"
+  },
+  freeBadge: {
+    backgroundColor: colors.accentSoft,
+    color: colors.accent
+  },
+  exploreRecipeTitle: {
+    color: colors.ink,
+    fontSize: 16,
+    fontWeight: "900",
+    lineHeight: 20
+  },
+  exploreRecipeMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 18,
+    marginTop: 5
+  },
+  exploreRecipeAction: {
     color: colors.accent,
     fontSize: 12,
     fontWeight: "900"

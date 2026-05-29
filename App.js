@@ -2,8 +2,10 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Dimensions,
   FlatList,
   Image,
+  ImageBackground,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -20,6 +22,9 @@ import {
 } from "./src/services/favoriteService";
 import { getRecipes } from "./src/services/recipeService";
 
+const screenHeight = Dimensions.get("window").height;
+const feedCardHeight = Math.max(620, screenHeight - 132);
+
 export default function App() {
   const [recipes, setRecipes] = useState([]);
   const [recipeError, setRecipeError] = useState(null);
@@ -27,11 +32,12 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [favoriteIds, setFavoriteIds] = useState([]);
   const [favoriteError, setFavoriteError] = useState(null);
-  const [currentView, setCurrentView] = useState("recipes");
+  const [currentView, setCurrentView] = useState("home");
   const [hasSubscription, setHasSubscription] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState("All");
   const [query, setQuery] = useState("");
   const [activeRecipe, setActiveRecipe] = useState(null);
+  const [cookingRecipe, setCookingRecipe] = useState(null);
 
   useEffect(() => {
     loadRecipes();
@@ -116,43 +122,46 @@ export default function App() {
     });
   }, [query, recipes, selectedCountry]);
 
-  const featuredRecipe =
-    filteredRecipes.find((recipe) => hasSubscription || !recipe.isPremium) ??
-    filteredRecipes[0] ??
-    recipes.find((recipe) => hasSubscription || !recipe.isPremium) ??
-    recipes[0] ??
-    null;
-  const featuredLocked = Boolean(featuredRecipe?.isPremium && !hasSubscription);
-  const listRecipes = useMemo(
-    () =>
-      filteredRecipes.filter((recipe) => {
-        if (featuredRecipe?.id === recipe.id) {
-          return false;
-        }
-
-        return true;
-      }),
-    [featuredRecipe, filteredRecipes]
-  );
   const savedRecipes = useMemo(
     () => recipes.filter((recipe) => favoriteIds.includes(recipe.id)),
     [favoriteIds, recipes]
   );
 
+  const freeRecipes = useMemo(
+    () => recipes.filter((recipe) => !recipe.isPremium),
+    [recipes]
+  );
+
+  const premiumRecipes = useMemo(
+    () => recipes.filter((recipe) => recipe.isPremium),
+    [recipes]
+  );
+
   function changeView(view) {
     setActiveRecipe(null);
+    setCookingRecipe(null);
     setCurrentView(view);
   }
 
   function openSubscription() {
     setActiveRecipe(null);
+    setCookingRecipe(null);
     setCurrentView(session ? "subscription" : "profile");
+  }
+
+  function openRecipe(recipe) {
+    if (recipe.isPremium && !hasSubscription) {
+      openSubscription();
+      return;
+    }
+
+    setActiveRecipe(recipe);
   }
 
   function handleLogout() {
     setSession(null);
     setFavoriteIds([]);
-    setCurrentView("recipes");
+    setCurrentView("home");
   }
 
   async function toggleFavorite(recipeId) {
@@ -181,16 +190,86 @@ export default function App() {
     }
   }
 
-  if (currentView === "profile") {
+  if (cookingRecipe) {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar style="dark" />
-        <ScrollView style={styles.screen} showsVerticalScrollIndicator={false}>
-          <AppTabs
-            currentView={currentView}
-            onChange={changeView}
-            signedIn={Boolean(session)}
-          />
+      <CookingModeScreen
+        recipe={cookingRecipe}
+        onBack={() => setCookingRecipe(null)}
+      />
+    );
+  }
+
+  if (activeRecipe) {
+    return (
+      <RecipeDetailScreen
+        favoriteError={favoriteError}
+        recipe={activeRecipe}
+        saved={favoriteIds.includes(activeRecipe.id)}
+        signedIn={Boolean(session)}
+        onBack={() => setActiveRecipe(null)}
+        onStartCooking={() => setCookingRecipe(activeRecipe)}
+        onToggleFavorite={() => toggleFavorite(activeRecipe.id)}
+      />
+    );
+  }
+
+  if (currentView === "subscription") {
+    return (
+      <SubscriptionScreen
+        hasSubscription={hasSubscription}
+        onBack={() => setCurrentView("home")}
+        onPreviewChange={setHasSubscription}
+      />
+    );
+  }
+
+  return (
+    <SafeAreaView
+      style={[
+        styles.safeArea,
+        currentView === "home" ? styles.darkSafeArea : styles.lightSafeArea
+      ]}
+    >
+      <StatusBar style={currentView === "home" ? "light" : "dark"} />
+      {currentView === "home" ? (
+        <HomeFeed
+          favoriteError={favoriteError}
+          favoriteIds={favoriteIds}
+          hasSubscription={hasSubscription}
+          isLoading={isLoadingRecipes}
+          recipeError={recipeError}
+          recipes={filteredRecipes.length ? filteredRecipes : recipes}
+          session={session}
+          onOpenRecipe={openRecipe}
+          onOpenSubscription={openSubscription}
+          onRetry={loadRecipes}
+          onToggleFavorite={toggleFavorite}
+        />
+      ) : null}
+
+      {currentView === "explore" ? (
+        <ExploreScreen
+          countries={countryStats}
+          freeRecipes={freeRecipes}
+          premiumRecipes={premiumRecipes}
+          query={query}
+          recipes={filteredRecipes}
+          selectedCountry={selectedCountry}
+          onCountryChange={setSelectedCountry}
+          onOpenRecipe={openRecipe}
+          onQueryChange={setQuery}
+        />
+      ) : null}
+
+      {currentView === "favorites" ? (
+        <FavoritesScreen
+          recipes={savedRecipes}
+          onOpenRecipe={openRecipe}
+        />
+      ) : null}
+
+      {currentView === "profile" ? (
+        <ScrollView style={styles.lightScreen} showsVerticalScrollIndicator={false}>
           {session ? (
             <ProfileScreen
               favoriteError={favoriteError}
@@ -205,174 +284,216 @@ export default function App() {
             <AuthScreen onSessionChange={setSession} />
           )}
         </ScrollView>
-      </SafeAreaView>
-    );
-  }
+      ) : null}
 
-  if (currentView === "subscription") {
-    return (
-      <SubscriptionScreen
-        hasSubscription={hasSubscription}
-        onBack={() => setCurrentView("recipes")}
-        onPreviewChange={setHasSubscription}
-      />
-    );
-  }
-
-  if (activeRecipe) {
-    return (
-      <RecipeDetailScreen
-        favoriteError={favoriteError}
-        recipe={activeRecipe}
-        saved={favoriteIds.includes(activeRecipe.id)}
+      <BottomNav
+        currentView={currentView}
         signedIn={Boolean(session)}
-        onBack={() => setActiveRecipe(null)}
-        onToggleFavorite={() => toggleFavorite(activeRecipe.id)}
+        onChange={changeView}
       />
-    );
-  }
-
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar style="dark" />
-      <View style={styles.screen}>
-        <AppTabs
-          currentView={currentView}
-          onChange={changeView}
-          signedIn={Boolean(session)}
-        />
-
-        <FlatList
-          data={isLoadingRecipes ? [] : listRecipes}
-          keyExtractor={(item) => item.id}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.recipeList}
-          ListHeaderComponent={
-            <HomeHeader
-              countries={countryStats}
-              favoriteError={favoriteError}
-              featuredRecipe={featuredRecipe}
-              featuredLocked={featuredLocked}
-              isLoading={isLoadingRecipes}
-              query={query}
-              recipeError={recipeError}
-              recipeCount={recipes.length}
-              selectedCountry={selectedCountry}
-              onCountryChange={setSelectedCountry}
-              onLockedRecipe={openSubscription}
-              onOpenRecipe={setActiveRecipe}
-              onQueryChange={setQuery}
-              onRetry={loadRecipes}
-            />
-          }
-          renderItem={({ item }) => (
-            <RecipeCard
-              recipe={item}
-              saved={favoriteIds.includes(item.id)}
-              locked={item.isPremium && !hasSubscription}
-              onLockedPress={openSubscription}
-              onPress={() => setActiveRecipe(item)}
-              onToggleFavorite={() => toggleFavorite(item.id)}
-            />
-          )}
-          ListEmptyComponent={
-            isLoadingRecipes ? (
-              <LoadingState />
-            ) : (
-              <EmptyState
-                hasError={Boolean(recipeError)}
-                onRetry={loadRecipes}
-                query={query}
-              />
-            )
-          }
-        />
-      </View>
     </SafeAreaView>
   );
 }
 
-function HomeHeader({
-  countries,
+function HomeFeed({
   favoriteError,
-  featuredRecipe,
-  featuredLocked,
+  favoriteIds,
+  hasSubscription,
   isLoading,
-  query,
   recipeError,
-  recipeCount,
-  selectedCountry,
-  onCountryChange,
-  onLockedRecipe,
+  recipes,
+  session,
   onOpenRecipe,
-  onQueryChange,
-  onRetry
+  onOpenSubscription,
+  onRetry,
+  onToggleFavorite
+}) {
+  if (isLoading) {
+    return (
+      <View style={styles.feedState}>
+        <ActivityIndicator color={colors.accent} size="large" />
+        <Text style={styles.feedStateTitle}>Preparing your feed</Text>
+        <Text style={styles.feedStateText}>Fresh recipes are loading.</Text>
+      </View>
+    );
+  }
+
+  if (recipeError && !recipes.length) {
+    return (
+      <View style={styles.feedState}>
+        <Text style={styles.feedStateTitle}>Could not load recipes</Text>
+        <Text style={styles.feedStateText}>{recipeError}</Text>
+        <Pressable style={styles.feedCtaButton} onPress={onRetry}>
+          <Text style={styles.feedCtaText}>Try again</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (!recipes.length) {
+    return (
+      <View style={styles.feedState}>
+        <Text style={styles.feedStateTitle}>No recipes yet</Text>
+        <Text style={styles.feedStateText}>Published recipes will appear here.</Text>
+      </View>
+    );
+  }
+
+  return (
+    <FlatList
+      data={recipes}
+      keyExtractor={(item) => item.id}
+      pagingEnabled
+      snapToAlignment="start"
+      decelerationRate="fast"
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.feedList}
+      renderItem={({ item, index }) => (
+        <FeedRecipeCard
+          favoriteError={favoriteError}
+          index={index}
+          isSaved={favoriteIds.includes(item.id)}
+          locked={item.isPremium && !hasSubscription}
+          recipe={item}
+          signedIn={Boolean(session)}
+          onOpenRecipe={onOpenRecipe}
+          onOpenSubscription={onOpenSubscription}
+          onToggleFavorite={onToggleFavorite}
+        />
+      )}
+    />
+  );
+}
+
+function FeedRecipeCard({
+  favoriteError,
+  index,
+  isSaved,
+  locked,
+  recipe,
+  signedIn,
+  onOpenRecipe,
+  onOpenSubscription,
+  onToggleFavorite
 }) {
   return (
-    <View>
-      <View style={styles.hero}>
-        <View style={styles.brandRow}>
-          <View style={styles.logoMark}>
-            <Text style={styles.logoMarkText}>WR</Text>
-          </View>
+    <View style={styles.feedCardShell}>
+      <ImageBackground
+        source={{ uri: recipe.image }}
+        style={styles.feedCard}
+        imageStyle={styles.feedCardImage}
+      >
+        <View style={styles.feedShade} />
+        <View style={styles.feedTopBar}>
           <View>
-            <Text style={styles.kicker}>World Recipes</Text>
-            <Text style={styles.brandSubtext}>{recipeCount} published recipes</Text>
+            <Text style={styles.feedGreeting}>
+              {signedIn ? "Good evening, chef" : "Good evening"}
+            </Text>
+            <Text style={styles.feedBrand}>World Recipes</Text>
+          </View>
+          <View style={styles.profileBubble}>
+            <Text style={styles.profileBubbleText}>WR</Text>
           </View>
         </View>
-        <Text style={styles.title}>Cook your way around the world</Text>
-        <Text style={styles.subtitle}>
-          Find real recipes by country, ingredient, and cooking style.
-        </Text>
-      </View>
 
-      {recipeError ? (
-        <InlineMessage message={recipeError} tone="error" onRetry={onRetry} />
-      ) : null}
-      {favoriteError ? <InlineMessage message={favoriteError} tone="error" /> : null}
+        <View style={styles.feedSearch}>
+          <Text style={styles.feedSearchText}>Search recipes, ingredients...</Text>
+        </View>
 
-      {featuredRecipe && !isLoading ? (
-        <Pressable
-          style={[styles.featuredCard, featuredLocked && styles.lockedCard]}
-          onPress={() =>
-            featuredLocked ? onLockedRecipe() : onOpenRecipe(featuredRecipe)
-          }
-        >
-          <Image source={{ uri: featuredRecipe.image }} style={styles.featuredImage} />
-          {featuredLocked ? (
-            <View style={styles.lockOverlay}>
-              <Text style={styles.lockBadge}>Premium</Text>
+        <View style={styles.feedBody}>
+          <View style={styles.feedBadgeRow}>
+            <View style={styles.trendingBadge}>
+              <Text style={styles.trendingBadgeText}>
+                {locked ? "Premium" : index === 0 ? "Trending" : recipe.country}
+              </Text>
             </View>
-          ) : null}
-          <View style={styles.featuredBody}>
-            <Text style={styles.featuredLabel}>
-              {featuredLocked ? "Premium Preview" : "Featured"}
-            </Text>
-            <Text style={styles.featuredTitle}>{featuredRecipe.title}</Text>
-            <Text style={styles.featuredMeta}>
-              {featuredLocked
-                ? "Subscribe to unlock this recipe"
-                : `${featuredRecipe.country} - ${featuredRecipe.timeMinutes} min - ${featuredRecipe.difficulty}`}
-            </Text>
+            <Pressable
+              onPress={() => (locked ? onOpenSubscription() : onToggleFavorite(recipe.id))}
+              style={styles.roundAction}
+            >
+              <Text style={styles.roundActionText}>
+                {locked ? "Lock" : isSaved ? "Saved" : "Save"}
+              </Text>
+            </Pressable>
           </View>
-        </Pressable>
-      ) : null}
 
-      <View style={styles.searchBlock}>
-        <TextInput
-          value={query}
-          onChangeText={onQueryChange}
-          placeholder="Search recipes, ingredients, countries"
-          placeholderTextColor="#7a827c"
-          style={styles.searchInput}
-        />
+          <Text style={styles.feedTitle}>{recipe.title}</Text>
+          <View style={styles.feedMetaRow}>
+            <Text style={styles.feedMeta}>{recipe.timeMinutes} min</Text>
+            <Text style={styles.feedMeta}>{recipe.difficulty}</Text>
+            <Text style={styles.feedMeta}>{recipe.country}</Text>
+          </View>
+          <Text style={styles.feedDescription}>
+            {locked
+              ? "Unlock this premium recipe with your subscription."
+              : recipe.region || "Discover a rich dish with premium food storytelling."}
+          </Text>
+          {favoriteError ? <Text style={styles.feedError}>{favoriteError}</Text> : null}
+
+          <Pressable
+            onPress={() => (locked ? onOpenSubscription() : onOpenRecipe(recipe))}
+            style={styles.feedCtaButton}
+          >
+            <Text style={styles.feedCtaText}>
+              {locked ? "View Premium" : "View Recipe"}
+            </Text>
+          </Pressable>
+          <View style={styles.feedDots}>
+            {[0, 1, 2, 3].map((dot) => (
+              <View
+                key={dot}
+                style={[styles.feedDot, dot === index % 4 && styles.feedDotActive]}
+              />
+            ))}
+          </View>
+        </View>
+      </ImageBackground>
+    </View>
+  );
+}
+
+function ExploreScreen({
+  countries,
+  freeRecipes,
+  premiumRecipes,
+  query,
+  recipes,
+  selectedCountry,
+  onCountryChange,
+  onOpenRecipe,
+  onQueryChange
+}) {
+  const categories = ["All", "Breakfast", "Lunch", "Dinner", "Desserts", "Healthy"];
+
+  return (
+    <ScrollView style={styles.lightScreen} showsVerticalScrollIndicator={false}>
+      <View style={styles.lightHeader}>
+        <Text style={styles.lightTitle}>Explore</Text>
+        <Text style={styles.lightIcon}>Search</Text>
       </View>
+      <TextInput
+        value={query}
+        onChangeText={onQueryChange}
+        placeholder="Search recipes, ingredients..."
+        placeholderTextColor={colors.muted}
+        style={styles.searchInput}
+      />
 
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionEyebrow}>Browse Countries</Text>
-        <Text style={styles.sectionHint}>{countries.length} filters</Text>
-      </View>
+      <SectionHeader title="Categories" action="Filters" />
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.categoryScroller}
+      >
+        {categories.map((category) => (
+          <View key={category} style={styles.categoryChip}>
+            <Text style={styles.categoryIcon}>{category.slice(0, 1)}</Text>
+            <Text style={styles.categoryText}>{category}</Text>
+          </View>
+        ))}
+      </ScrollView>
 
+      <SectionHeader title="Popular Countries" action={`${countries.length} total`} />
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -384,20 +505,20 @@ function HomeHeader({
             <Pressable
               key={country}
               onPress={() => onCountryChange(country)}
-              style={[styles.countryCard, selected && styles.countryCardSelected]}
+              style={[styles.countryCuisine, selected && styles.countryCuisineActive]}
             >
               <Text
                 style={[
-                  styles.countryCardTitle,
-                  selected && styles.countryCardTitleSelected
+                  styles.countryCuisineTitle,
+                  selected && styles.countryCuisineTitleActive
                 ]}
               >
                 {country}
               </Text>
               <Text
                 style={[
-                  styles.countryCardCount,
-                  selected && styles.countryCardCountSelected
+                  styles.countryCuisineCount,
+                  selected && styles.countryCuisineCountActive
                 ]}
               >
                 {count} recipes
@@ -407,11 +528,89 @@ function HomeHeader({
         })}
       </ScrollView>
 
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionEyebrow}>Recipes</Text>
-        <Text style={styles.sectionHint}>{selectedCountry}</Text>
+      <SectionHeader title="Trending Recipes" action="See all" />
+      {recipes.map((recipe) => (
+        <CompactRecipeRow
+          key={recipe.id}
+          recipe={recipe}
+          onPress={() => onOpenRecipe(recipe)}
+        />
+      ))}
+
+      <SectionHeader title="Free To Start" action={`${freeRecipes.length} recipes`} />
+      <HorizontalRecipeStrip recipes={freeRecipes} onOpenRecipe={onOpenRecipe} />
+
+      <SectionHeader title="Premium Picks" action={`${premiumRecipes.length} recipes`} />
+      <HorizontalRecipeStrip recipes={premiumRecipes} onOpenRecipe={onOpenRecipe} />
+      <View style={styles.bottomSpacer} />
+    </ScrollView>
+  );
+}
+
+function HorizontalRecipeStrip({ recipes, onOpenRecipe }) {
+  if (!recipes.length) {
+    return <Text style={styles.emptyText}>No recipes in this section yet.</Text>;
+  }
+
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.recipeStrip}
+    >
+      {recipes.slice(0, 8).map((recipe) => (
+        <Pressable
+          key={recipe.id}
+          onPress={() => onOpenRecipe(recipe)}
+          style={styles.stripCard}
+        >
+          <Image source={{ uri: recipe.image }} style={styles.stripImage} />
+          <Text style={styles.stripTitle}>{recipe.title}</Text>
+          <Text style={styles.stripMeta}>{recipe.country}</Text>
+        </Pressable>
+      ))}
+    </ScrollView>
+  );
+}
+
+function FavoritesScreen({ recipes, onOpenRecipe }) {
+  return (
+    <ScrollView style={styles.lightScreen} showsVerticalScrollIndicator={false}>
+      <View style={styles.lightHeader}>
+        <Text style={styles.lightTitle}>Favorites</Text>
+        <Text style={styles.lightIcon}>Saved</Text>
       </View>
-    </View>
+      <View style={styles.segmentRow}>
+        <View style={[styles.segmentPill, styles.segmentPillActive]}>
+          <Text style={styles.segmentTextActive}>All Recipes</Text>
+        </View>
+        <View style={styles.segmentPill}>
+          <Text style={styles.segmentText}>Collections</Text>
+        </View>
+        <View style={styles.segmentPill}>
+          <Text style={styles.segmentText}>Videos</Text>
+        </View>
+      </View>
+
+      {recipes.length ? (
+        recipes.map((recipe) => (
+          <CompactRecipeRow
+            key={recipe.id}
+            recipe={recipe}
+            saved
+            onPress={() => onOpenRecipe(recipe)}
+          />
+        ))
+      ) : (
+        <View style={styles.stateBox}>
+          <Text style={styles.emptyTitle}>No saved recipes</Text>
+          <Text style={styles.emptyText}>
+            Save dishes from the home feed and they will appear here.
+          </Text>
+        </View>
+      )}
+      <View style={styles.bottomSpacer} />
+    </ScrollView>
   );
 }
 
@@ -421,146 +620,178 @@ function RecipeDetailScreen({
   saved,
   signedIn,
   onBack,
+  onStartCooking,
   onToggleFavorite
 }) {
+  const [tab, setTab] = useState("Ingredients");
+  const tabs = ["Ingredients", "Steps", "Nutrition", "Reviews"];
+
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar style="light" />
+    <SafeAreaView style={styles.lightSafeArea}>
+      <StatusBar style="dark" />
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.detailHero}>
           <Image source={{ uri: recipe.image }} style={styles.detailImage} />
           <Pressable style={styles.detailBackButton} onPress={onBack}>
             <Text style={styles.detailBackText}>Back</Text>
           </Pressable>
-        </View>
-
-        <View style={styles.detailContent}>
-          <Text style={styles.countryText}>{recipe.country}</Text>
-          <Text style={styles.detailTitle}>{recipe.title}</Text>
-          <Text style={styles.detailSubtext}>{recipe.region}</Text>
-
-          <View style={styles.detailMetaGrid}>
-            <MetaTile label="Time" value={`${recipe.timeMinutes} min`} />
-            <MetaTile label="Level" value={recipe.difficulty} />
-            <MetaTile label="Serves" value={`${recipe.servings}`} />
-          </View>
-
-          {recipe.tags.length ? (
-            <View style={styles.tagRow}>
-              {recipe.tags.map((tag) => (
-                <View key={tag} style={styles.tag}>
-                  <Text style={styles.tagText}>{tag}</Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
-
           <Pressable
             onPress={onToggleFavorite}
-            style={[styles.favoriteButton, saved && styles.favoriteButtonSaved]}
+            style={[styles.detailSaveButton, saved && styles.detailSaveButtonActive]}
           >
             <Text
               style={[
-                styles.favoriteButtonText,
-                saved && styles.favoriteButtonTextSaved
+                styles.detailSaveText,
+                saved && styles.detailSaveTextActive
               ]}
             >
-              {saved ? "Saved" : "Save recipe"}
+              {saved ? "Saved" : "Save"}
             </Text>
           </Pressable>
-          {!signedIn ? (
-            <Text style={styles.helperText}>Login first to save this recipe.</Text>
-          ) : null}
-          {favoriteError ? <Text style={styles.errorText}>{favoriteError}</Text> : null}
+        </View>
 
-          <RecipeSection title="Ingredients" items={recipe.ingredients} />
-          <RecipeSection title="Steps" items={recipe.steps} numbered />
+        <View style={styles.detailContent}>
+          <View style={styles.detailSheet}>
+            <Text style={styles.detailTitle}>{recipe.title}</Text>
+            <View style={styles.feedMetaRow}>
+              <Text style={styles.detailMeta}>{recipe.timeMinutes} min</Text>
+              <Text style={styles.detailMeta}>{recipe.difficulty}</Text>
+              <Text style={styles.detailMeta}>{recipe.country}</Text>
+            </View>
+            <Text style={styles.detailSubtext}>
+              {recipe.region || "A premium recipe with step-by-step guidance."}
+            </Text>
+            <View style={styles.ratingRow}>
+              <Text style={styles.ratingText}>4.8</Text>
+              <Text style={styles.ratingCopy}>Loved by home cooks</Text>
+            </View>
+            {!signedIn ? (
+              <Text style={styles.helperText}>Login first to save this recipe.</Text>
+            ) : null}
+            {favoriteError ? <Text style={styles.errorText}>{favoriteError}</Text> : null}
+          </View>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.detailTabs}
+          >
+            {tabs.map((item) => (
+              <Pressable
+                key={item}
+                onPress={() => setTab(item)}
+                style={[styles.detailTab, tab === item && styles.detailTabActive]}
+              >
+                <Text
+                  style={[
+                    styles.detailTabText,
+                    tab === item && styles.detailTabTextActive
+                  ]}
+                >
+                  {item}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+
+          {tab === "Ingredients" ? (
+            <IngredientList recipe={recipe} />
+          ) : null}
+          {tab === "Steps" ? (
+            <RecipeSection title="Cooking Steps" items={recipe.steps} numbered />
+          ) : null}
+          {tab === "Nutrition" ? (
+            <InfoPanel
+              title="Nutrition"
+              body="Nutrition facts will be added from the admin panel later. For now, use servings and ingredients as the guide."
+            />
+          ) : null}
+          {tab === "Reviews" ? (
+            <InfoPanel
+              title="Reviews"
+              body="Ratings and reviews are planned for the next database upgrade."
+            />
+          ) : null}
         </View>
       </ScrollView>
+      <View style={styles.stickyCta}>
+        <Pressable onPress={onStartCooking} style={styles.primaryButton}>
+          <Text style={styles.primaryButtonText}>Start Cooking</Text>
+        </Pressable>
+      </View>
     </SafeAreaView>
   );
 }
 
-function MetaTile({ label, value }) {
+function IngredientList({ recipe }) {
   return (
-    <View style={styles.metaTile}>
-      <Text style={styles.metaLabel}>{label}</Text>
-      <Text style={styles.metaValue}>{value}</Text>
+    <View style={styles.panel}>
+      <Text style={styles.sectionTitle}>Ingredients</Text>
+      {recipe.ingredients.length ? (
+        recipe.ingredients.map((ingredient, index) => (
+          <View key={`${ingredient}-${index}`} style={styles.ingredientRow}>
+            <Image source={{ uri: recipe.image }} style={styles.ingredientImage} />
+            <View style={styles.ingredientCopy}>
+              <Text style={styles.ingredientTitle}>{ingredient}</Text>
+              <Text style={styles.ingredientMeta}>Measure to taste</Text>
+            </View>
+            <Text style={styles.addButton}>+</Text>
+          </View>
+        ))
+      ) : (
+        <Text style={styles.emptyText}>Ingredients will appear here.</Text>
+      )}
     </View>
   );
 }
 
-function InlineMessage({ message, tone, onRetry }) {
-  return (
-    <View style={[styles.inlineMessage, tone === "error" && styles.inlineError]}>
-      <Text style={styles.inlineMessageText}>{message}</Text>
-      {onRetry ? (
-        <Pressable style={styles.inlineButton} onPress={onRetry}>
-          <Text style={styles.inlineButtonText}>Retry</Text>
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
+function CookingModeScreen({ recipe, onBack }) {
+  const [stepIndex, setStepIndex] = useState(0);
+  const steps = recipe.steps.length ? recipe.steps : ["Follow the recipe details."];
+  const currentStep = steps[stepIndex];
+  const progress = ((stepIndex + 1) / steps.length) * 100;
 
-function LoadingState() {
   return (
-    <View style={styles.stateBox}>
-      <ActivityIndicator color="#e05f2f" size="large" />
-      <Text style={styles.emptyTitle}>Loading recipes</Text>
-      <Text style={styles.emptyText}>Fresh dishes are coming in.</Text>
-    </View>
-  );
-}
-
-function EmptyState({ hasError, onRetry, query }) {
-  return (
-    <View style={styles.stateBox}>
-      <Text style={styles.emptyTitle}>
-        {hasError ? "Could not load recipes" : "No recipes found"}
-      </Text>
-      <Text style={styles.emptyText}>
-        {query ? "Try a different search or country." : "Published recipes will appear here."}
-      </Text>
-      {hasError ? (
-        <Pressable style={styles.secondaryButton} onPress={onRetry}>
-          <Text style={styles.secondaryButtonText}>Try again</Text>
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
-function AppTabs({ currentView, onChange, signedIn }) {
-  return (
-    <View style={styles.tabs}>
-      <Pressable
-        onPress={() => onChange("recipes")}
-        style={[styles.tabButton, currentView === "recipes" && styles.tabButtonActive]}
-      >
-        <Text
-          style={[
-            styles.tabButtonText,
-            currentView === "recipes" && styles.tabButtonTextActive
-          ]}
-        >
-          Recipes
-        </Text>
-      </Pressable>
-      <Pressable
-        onPress={() => onChange("profile")}
-        style={[styles.tabButton, currentView === "profile" && styles.tabButtonActive]}
-      >
-        <Text
-          style={[
-            styles.tabButtonText,
-            currentView === "profile" && styles.tabButtonTextActive
-          ]}
-        >
-          {signedIn ? "Profile" : "Login"}
-        </Text>
-      </Pressable>
-    </View>
+    <SafeAreaView style={styles.lightSafeArea}>
+      <StatusBar style="dark" />
+      <View style={styles.cookingScreen}>
+        <View style={styles.lightHeader}>
+          <Pressable onPress={onBack}>
+            <Text style={styles.lightIcon}>Back</Text>
+          </Pressable>
+          <Text style={styles.cookingStepLabel}>
+            Step {stepIndex + 1} of {steps.length}
+          </Text>
+        </View>
+        <View style={styles.progressTrack}>
+          <View style={[styles.progressFill, { width: `${progress}%` }]} />
+        </View>
+        <Text style={styles.cookingTitle}>{recipe.title}</Text>
+        <Text style={styles.cookingInstruction}>{currentStep}</Text>
+        <Image source={{ uri: recipe.image }} style={styles.cookingImage} />
+        <View style={styles.timerCircle}>
+          <Text style={styles.timerText}>08:00</Text>
+          <Text style={styles.timerLabel}>Cooking timer</Text>
+        </View>
+        <View style={styles.cookingControls}>
+          <Pressable
+            disabled={stepIndex === 0}
+            onPress={() => setStepIndex((value) => Math.max(0, value - 1))}
+            style={[styles.secondaryButton, stepIndex === 0 && styles.disabledButton]}
+          >
+            <Text style={styles.secondaryButtonText}>Previous</Text>
+          </Pressable>
+          <Pressable
+            onPress={() =>
+              setStepIndex((value) => Math.min(steps.length - 1, value + 1))
+            }
+            style={styles.primaryButtonSmall}
+          >
+            <Text style={styles.primaryButtonText}>Next</Text>
+          </Pressable>
+        </View>
+      </View>
+    </SafeAreaView>
   );
 }
 
@@ -592,9 +823,14 @@ function AuthScreen({ onSessionChange }) {
 
   return (
     <View style={styles.authContainer}>
-      <Text style={styles.kicker}>{isSignup ? "Create Account" : "Welcome Back"}</Text>
-      <Text style={styles.authTitle}>
-        {isSignup ? "Start your recipe profile" : "Log in to your recipe profile"}
+      <View style={styles.authArt}>
+        <Text style={styles.authArtText}>Welcome Back!</Text>
+      </View>
+      <Text style={styles.lightTitle}>
+        {isSignup ? "Create your account" : "Login to continue"}
+      </Text>
+      <Text style={styles.lightSubtitle}>
+        Save favorites, unlock premium recipes, and keep cooking.
       </Text>
 
       <View style={styles.authModeRow}>
@@ -611,7 +847,7 @@ function AuthScreen({ onSessionChange }) {
           style={[styles.authModeButton, isSignup && styles.authModeButtonActive]}
         >
           <Text style={[styles.authModeText, isSignup && styles.authModeTextActive]}>
-            Create
+            Sign up
           </Text>
         </Pressable>
       </View>
@@ -621,7 +857,7 @@ function AuthScreen({ onSessionChange }) {
           value={fullName}
           onChangeText={setFullName}
           placeholder="Full name"
-          placeholderTextColor="#7a827c"
+          placeholderTextColor={colors.muted}
           style={styles.formInput}
         />
       ) : null}
@@ -631,29 +867,37 @@ function AuthScreen({ onSessionChange }) {
         autoCapitalize="none"
         keyboardType="email-address"
         placeholder="Email address"
-        placeholderTextColor="#7a827c"
+        placeholderTextColor={colors.muted}
         style={styles.formInput}
       />
       <TextInput
         value={password}
         onChangeText={setPassword}
         placeholder="Password"
-        placeholderTextColor="#7a827c"
+        placeholderTextColor={colors.muted}
         secureTextEntry
         style={styles.formInput}
       />
-
+      <Text style={styles.forgotText}>Forgot Password?</Text>
       {status ? <Text style={styles.errorText}>{status}</Text> : null}
 
       <Pressable
         onPress={handleSubmit}
         disabled={isSubmitting}
-        style={[styles.primaryButton, isSubmitting && styles.primaryButtonDisabled]}
+        style={[styles.primaryButton, isSubmitting && styles.disabledButton]}
       >
         <Text style={styles.primaryButtonText}>
           {isSubmitting ? "Please wait..." : isSignup ? "Create account" : "Login"}
         </Text>
       </Pressable>
+      <View style={styles.socialRow}>
+        <View style={styles.socialButton}>
+          <Text style={styles.socialText}>Google</Text>
+        </View>
+        <View style={styles.socialButton}>
+          <Text style={styles.socialText}>Apple</Text>
+        </View>
+      </View>
     </View>
   );
 }
@@ -688,10 +932,22 @@ function ProfileScreen({
 
   return (
     <View style={styles.profileContainer}>
-      <Text style={styles.kicker}>Profile</Text>
-      <Text style={styles.authTitle}>Hello, {session.user.fullName}</Text>
-      <Text style={styles.subtitle}>{session.user.email}</Text>
+      <View style={styles.profileTop}>
+        <View style={styles.profileAvatar}>
+          <Text style={styles.profileAvatarText}>
+            {session.user.fullName?.slice(0, 1).toUpperCase() || "U"}
+          </Text>
+        </View>
+        <Text style={styles.lightTitle}>{session.user.fullName}</Text>
+        <Text style={styles.lightSubtitle}>{session.user.email}</Text>
+      </View>
       {favoriteError ? <Text style={styles.errorText}>{favoriteError}</Text> : null}
+
+      <View style={styles.statsRow}>
+        <StatTile value={savedRecipes.length} label="Recipes Saved" />
+        <StatTile value="0" label="Collections" />
+        <StatTile value="2.4k" label="Minutes Cooked" />
+      </View>
 
       <View style={styles.subscriptionPanel}>
         <Text style={styles.subscriptionLabel}>Subscription</Text>
@@ -719,7 +975,7 @@ function ProfileScreen({
           value={fullName}
           onChangeText={setFullName}
           placeholder="Full name"
-          placeholderTextColor="#7a827c"
+          placeholderTextColor={colors.muted}
           style={styles.formInput}
         />
         {status ? (
@@ -730,7 +986,7 @@ function ProfileScreen({
         <Pressable
           onPress={handleSave}
           disabled={isSaving}
-          style={[styles.primaryButton, isSaving && styles.primaryButtonDisabled]}
+          style={[styles.primaryButton, isSaving && styles.disabledButton]}
         >
           <Text style={styles.primaryButtonText}>
             {isSaving ? "Saving..." : "Save profile"}
@@ -741,67 +997,56 @@ function ProfileScreen({
         </Pressable>
       </View>
 
-      <View style={styles.panel}>
-        <Text style={styles.sectionTitle}>Saved Recipes</Text>
-        {savedRecipes.length ? (
-          savedRecipes.map((recipe) => (
-            <View key={recipe.id} style={styles.savedRecipeRow}>
-              <Image source={{ uri: recipe.image }} style={styles.savedRecipeImage} />
-              <View style={styles.savedRecipeCopy}>
-                <Text style={styles.savedRecipeTitle}>{recipe.title}</Text>
-                <Text style={styles.savedRecipeMeta}>
-                  {recipe.country} - {recipe.timeMinutes} min
-                </Text>
-              </View>
+      <View style={styles.menuPanel}>
+        {["Cooking History", "My Collections", "Shopping List", "Settings", "Help & Support"].map(
+          (item) => (
+            <View key={item} style={styles.menuRow}>
+              <Text style={styles.menuText}>{item}</Text>
+              <Text style={styles.menuArrow}>{">"}</Text>
             </View>
-          ))
-        ) : (
-          <Text style={styles.emptyText}>Saved recipes will appear here.</Text>
+          )
         )}
       </View>
+      <View style={styles.bottomSpacer} />
     </View>
   );
 }
 
 function SubscriptionScreen({ hasSubscription, onBack, onPreviewChange }) {
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar style="dark" />
-      <ScrollView style={styles.screen} showsVerticalScrollIndicator={false}>
-        <View style={styles.paywallContainer}>
-          <Pressable onPress={onBack} style={styles.secondaryButton}>
-            <Text style={styles.secondaryButtonText}>Back to recipes</Text>
-          </Pressable>
+    <SafeAreaView style={styles.darkSafeArea}>
+      <StatusBar style="light" />
+      <ScrollView style={styles.darkScreen} showsVerticalScrollIndicator={false}>
+        <Pressable onPress={onBack} style={styles.darkBackButton}>
+          <Text style={styles.darkBackText}>Back to recipes</Text>
+        </Pressable>
 
-          <View style={styles.paywallHero}>
-            <Text style={styles.subscriptionLabel}>World Recipes Premium</Text>
-            <Text style={styles.subscriptionTitle}>
-              Unlock every country, every recipe.
-            </Text>
-            <Text style={styles.subscriptionText}>
-              Start with free recipes, then upgrade when you want the complete
-              recipe library and new premium dishes.
-            </Text>
-            <View style={styles.paywallDivider} />
-            <View style={styles.paywallPriceRow}>
-              <Text style={styles.paywallPrice}>Rs. 99</Text>
-              <Text style={styles.paywallPeriod}>/ month</Text>
-            </View>
-            <Benefit text="Unlimited premium recipe access" />
-            <Benefit text="Recipes from every published country" />
-            <Benefit text="New premium dishes as you add them from admin" />
-            <Pressable
-              style={[styles.primaryButton, hasSubscription && styles.greenButton]}
-              onPress={() => onPreviewChange(!hasSubscription)}
-            >
-              <Text style={styles.primaryButtonText}>
-                {hasSubscription ? "Premium preview active" : "Preview unlock for testing"}
-              </Text>
-            </Pressable>
-            <Text style={styles.paywallFootnote}>
-              Payment will connect to RevenueCat before app store launch.
-            </Text>
+        <View style={styles.paywallHero}>
+          <Text style={styles.subscriptionLabel}>World Recipes Premium</Text>
+          <Text style={styles.paywallTitle}>Unlock every country, every recipe.</Text>
+          <Text style={styles.subscriptionText}>
+            Start with free recipes, then upgrade when you want the complete
+            recipe library and new premium dishes.
+          </Text>
+          <View style={styles.paywallDivider} />
+          <View style={styles.paywallPriceRow}>
+            <Text style={styles.paywallPrice}>Rs. 99</Text>
+            <Text style={styles.paywallPeriod}>/ month</Text>
           </View>
+          <Benefit text="Unlimited premium recipe access" />
+          <Benefit text="Recipes from every published country" />
+          <Benefit text="New premium dishes as you add them from admin" />
+          <Pressable
+            style={[styles.primaryButton, hasSubscription && styles.greenButton]}
+            onPress={() => onPreviewChange(!hasSubscription)}
+          >
+            <Text style={styles.primaryButtonText}>
+              {hasSubscription ? "Premium preview active" : "Preview unlock for testing"}
+            </Text>
+          </Pressable>
+          <Text style={styles.paywallFootnote}>
+            Payment will connect to RevenueCat before app store launch.
+          </Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -817,64 +1062,17 @@ function Benefit({ text }) {
   );
 }
 
-function RecipeCard({ recipe, saved, locked, onLockedPress, onPress, onToggleFavorite }) {
-  function handlePress() {
-    if (locked) {
-      onLockedPress();
-      return;
-    }
-
-    onPress();
-  }
-
+function CompactRecipeRow({ recipe, saved, onPress }) {
   return (
-    <Pressable style={[styles.card, locked && styles.lockedCard]} onPress={handlePress}>
-      <Image source={{ uri: recipe.image }} style={styles.cardImage} />
-      {locked ? (
-        <View style={styles.lockOverlay}>
-          <Text style={styles.lockBadge}>Premium</Text>
-        </View>
-      ) : null}
-      <View style={styles.cardBody}>
-        <View style={styles.cardHeaderRow}>
-          <Text style={styles.cardCountry}>{recipe.country}</Text>
-          <Pressable
-            onPress={(event) => {
-              event.stopPropagation();
-              if (locked) {
-                onLockedPress();
-              } else {
-                onToggleFavorite();
-              }
-            }}
-            style={[styles.cardSaveButton, saved && styles.cardSaveButtonActive]}
-          >
-            <Text
-              style={[
-                styles.cardSaveText,
-                saved && styles.cardSaveTextActive
-              ]}
-            >
-              {locked ? "Locked" : saved ? "Saved" : "Save"}
-            </Text>
-          </Pressable>
-        </View>
-        <Text style={styles.cardTitle}>{recipe.title}</Text>
-        <Text style={styles.cardMeta}>
-          {locked
-            ? "Subscribe to unlock this recipe"
-            : `${recipe.timeMinutes} min - ${recipe.difficulty} - Serves ${recipe.servings}`}
+    <Pressable onPress={onPress} style={styles.compactRow}>
+      <Image source={{ uri: recipe.image }} style={styles.compactImage} />
+      <View style={styles.compactCopy}>
+        <Text style={styles.compactTitle}>{recipe.title}</Text>
+        <Text style={styles.compactMeta}>
+          {recipe.timeMinutes} min - {recipe.difficulty}
         </Text>
-        {recipe.tags.length ? (
-          <View style={styles.tagRow}>
-            {recipe.tags.slice(0, 3).map((tag) => (
-              <View key={tag} style={styles.tag}>
-                <Text style={styles.tagText}>{tag}</Text>
-              </View>
-            ))}
-          </View>
-        ) : null}
       </View>
+      <Text style={styles.compactSave}>{saved ? "Saved" : recipe.isPremium ? "Pro" : ""}</Text>
     </Pressable>
   );
 }
@@ -897,355 +1095,500 @@ function RecipeSection({ title, items, numbered = false }) {
   );
 }
 
+function InfoPanel({ title, body }) {
+  return (
+    <View style={styles.panel}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      <Text style={styles.listText}>{body}</Text>
+    </View>
+  );
+}
+
+function SectionHeader({ title, action }) {
+  return (
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      <Text style={styles.sectionAction}>{action}</Text>
+    </View>
+  );
+}
+
+function StatTile({ value, label }) {
+  return (
+    <View style={styles.statTile}>
+      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function BottomNav({ currentView, signedIn, onChange }) {
+  const items = [
+    ["home", "Home"],
+    ["explore", "Explore"],
+    ["favorites", "Favorites"],
+    ["profile", signedIn ? "Profile" : "Login"]
+  ];
+
+  return (
+    <View style={styles.bottomNav}>
+      {items.map(([key, label]) => {
+        const active = currentView === key;
+        return (
+          <Pressable
+            key={key}
+            onPress={() => onChange(key)}
+            style={styles.navItem}
+          >
+            <View style={[styles.navDot, active && styles.navDotActive]} />
+            <Text style={[styles.navText, active && styles.navTextActive]}>{label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 const colors = {
-  background: "#f5faf7",
-  panel: "#ffffff",
-  ink: "#17211c",
-  muted: "#637168",
-  line: "#dbe8df",
-  green: "#1f6b4f",
-  greenSoft: "#dff1e8",
-  tomato: "#e05f2f",
-  tomatoSoft: "#fde6da"
+  cream: "#FAF7F2",
+  card: "#FFFFFF",
+  dark: "#050505",
+  darkSoft: "#111111",
+  ink: "#18120F",
+  muted: "#786F67",
+  line: "#E9DDD1",
+  accent: "#FF6B2C",
+  accentDark: "#E85A20",
+  accentSoft: "#FFF0E8",
+  green: "#1F7A52"
+};
+
+const shadows = {
+  soft: {
+    shadowColor: "#21160F",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    elevation: 3
+  }
 };
 
 const styles = StyleSheet.create({
   safeArea: {
+    flex: 1
+  },
+  darkSafeArea: {
+    backgroundColor: colors.dark
+  },
+  lightSafeArea: {
+    backgroundColor: colors.cream,
+    flex: 1
+  },
+  lightScreen: {
+    backgroundColor: colors.cream,
     flex: 1,
-    backgroundColor: colors.background
+    paddingHorizontal: 18,
+    paddingTop: 16
   },
-  screen: {
+  darkScreen: {
+    backgroundColor: colors.dark,
     flex: 1,
-    paddingHorizontal: 18
+    paddingHorizontal: 18,
+    paddingTop: 16
   },
-  tabs: {
-    flexDirection: "row",
-    gap: 10,
-    paddingTop: 14
+  feedList: {
+    paddingBottom: 92
   },
-  tabButton: {
-    backgroundColor: colors.panel,
-    borderColor: colors.line,
-    borderRadius: 8,
-    borderWidth: 1,
-    minWidth: 94,
+  feedCardShell: {
+    height: feedCardHeight,
     paddingHorizontal: 14,
-    paddingVertical: 10
+    paddingTop: 10
   },
-  tabButtonActive: {
-    backgroundColor: colors.ink,
-    borderColor: colors.ink
-  },
-  tabButtonText: {
-    color: colors.muted,
-    fontSize: 14,
-    fontWeight: "800",
-    textAlign: "center"
-  },
-  tabButtonTextActive: {
-    color: "#ffffff"
-  },
-  hero: {
-    paddingTop: 22,
-    paddingBottom: 18
-  },
-  brandRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-    marginBottom: 15
-  },
-  logoMark: {
-    alignItems: "center",
-    backgroundColor: colors.green,
-    borderRadius: 8,
-    height: 42,
-    justifyContent: "center",
-    width: 42
-  },
-  logoMarkText: {
-    color: "#ffffff",
-    fontSize: 14,
-    fontWeight: "900"
-  },
-  kicker: {
-    color: colors.tomato,
-    fontSize: 13,
-    fontWeight: "900",
-    marginBottom: 3,
-    textTransform: "uppercase"
-  },
-  brandSubtext: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "700"
-  },
-  title: {
-    color: colors.ink,
-    fontSize: 33,
-    fontWeight: "900",
-    lineHeight: 39
-  },
-  authTitle: {
-    color: colors.ink,
-    fontSize: 29,
-    fontWeight: "900",
-    lineHeight: 35
-  },
-  subtitle: {
-    color: colors.muted,
-    fontSize: 15,
-    lineHeight: 22,
-    marginTop: 8
-  },
-  featuredCard: {
-    backgroundColor: colors.ink,
-    borderRadius: 8,
-    marginBottom: 16,
-    overflow: "hidden"
-  },
-  featuredImage: {
-    height: 190,
-    width: "100%"
-  },
-  featuredBody: {
+  feedCard: {
+    flex: 1,
+    justifyContent: "space-between",
+    overflow: "hidden",
     padding: 16
   },
-  featuredLabel: {
-    color: "#b8f1d8",
-    fontSize: 12,
-    fontWeight: "900",
-    marginBottom: 5,
-    textTransform: "uppercase"
+  feedCardImage: {
+    borderRadius: 24
   },
-  featuredTitle: {
-    color: "#ffffff",
-    fontSize: 24,
-    fontWeight: "900"
+  feedShade: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0, 0, 0, 0.35)",
+    borderRadius: 24
   },
-  featuredMeta: {
-    color: "#dbe8df",
-    fontSize: 14,
-    marginTop: 6
-  },
-  searchBlock: {
-    marginBottom: 14
-  },
-  searchInput: {
-    backgroundColor: colors.panel,
-    borderColor: colors.line,
-    borderRadius: 8,
-    borderWidth: 1,
-    color: colors.ink,
-    fontSize: 15,
-    height: 50,
-    paddingHorizontal: 14
-  },
-  sectionHeader: {
+  feedTopBar: {
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 10,
+    zIndex: 1
+  },
+  feedGreeting: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700"
+  },
+  feedBrand: {
+    color: "#F4E4D7",
+    fontSize: 12,
+    fontWeight: "700",
     marginTop: 4
   },
-  sectionEyebrow: {
-    color: colors.ink,
-    fontSize: 16,
+  profileBubble: {
+    alignItems: "center",
+    backgroundColor: colors.accent,
+    borderRadius: 20,
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  profileBubbleText: {
+    color: "#FFFFFF",
+    fontSize: 12,
     fontWeight: "900"
   },
-  sectionHint: {
-    color: colors.muted,
+  feedSearch: {
+    backgroundColor: "rgba(255, 255, 255, 0.13)",
+    borderColor: "rgba(255, 255, 255, 0.12)",
+    borderRadius: 18,
+    borderWidth: 1,
+    marginTop: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    zIndex: 1
+  },
+  feedSearchText: {
+    color: "#D8D0CA",
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  feedBody: {
+    paddingBottom: 74,
+    zIndex: 1
+  },
+  feedBadgeRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 12
+  },
+  trendingBadge: {
+    backgroundColor: "rgba(0, 0, 0, 0.54)",
+    borderRadius: 16,
+    paddingHorizontal: 13,
+    paddingVertical: 8
+  },
+  trendingBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  roundAction: {
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.13)",
+    borderColor: "rgba(255, 255, 255, 0.2)",
+    borderRadius: 18,
+    borderWidth: 1,
+    minWidth: 62,
+    paddingHorizontal: 10,
+    paddingVertical: 8
+  },
+  roundActionText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "900"
+  },
+  feedTitle: {
+    color: "#FFFFFF",
+    fontSize: 34,
+    fontWeight: "900",
+    lineHeight: 39,
+    maxWidth: 330
+  },
+  feedMetaRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 10
+  },
+  feedMeta: {
+    color: "#F3E7DE",
     fontSize: 13,
     fontWeight: "800"
   },
-  countryScroller: {
-    gap: 10,
-    paddingBottom: 16
-  },
-  countryCard: {
-    backgroundColor: colors.panel,
-    borderColor: colors.line,
-    borderRadius: 8,
-    borderWidth: 1,
-    minWidth: 116,
-    padding: 13
-  },
-  countryCardSelected: {
-    backgroundColor: colors.green,
-    borderColor: colors.green
-  },
-  countryCardTitle: {
-    color: colors.ink,
+  feedDescription: {
+    color: "#FFFFFF",
     fontSize: 15,
+    lineHeight: 22,
+    marginTop: 12,
+    maxWidth: 330
+  },
+  feedError: {
+    color: "#FFD6C4",
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 8
+  },
+  feedCtaButton: {
+    alignItems: "center",
+    backgroundColor: colors.accent,
+    borderRadius: 16,
+    marginTop: 18,
+    paddingVertical: 15
+  },
+  feedCtaText: {
+    color: "#FFFFFF",
+    fontSize: 14,
     fontWeight: "900"
   },
-  countryCardTitleSelected: {
-    color: "#ffffff"
-  },
-  countryCardCount: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "700",
-    marginTop: 5
-  },
-  countryCardCountSelected: {
-    color: "#dff1e8"
-  },
-  recipeList: {
-    paddingBottom: 28
-  },
-  card: {
-    backgroundColor: colors.panel,
-    borderColor: colors.line,
-    borderRadius: 8,
-    borderWidth: 1,
-    marginBottom: 14,
-    overflow: "hidden"
-  },
-  lockedCard: {
-    opacity: 0.82
-  },
-  cardImage: {
-    height: 176,
-    width: "100%"
-  },
-  lockOverlay: {
-    alignItems: "flex-end",
-    left: 0,
-    padding: 12,
-    position: "absolute",
-    right: 0,
-    top: 0
-  },
-  lockBadge: {
-    backgroundColor: colors.ink,
-    borderRadius: 8,
-    color: "#ffffff",
-    fontSize: 12,
-    fontWeight: "900",
-    overflow: "hidden",
-    paddingHorizontal: 10,
-    paddingVertical: 7
-  },
-  cardBody: {
-    padding: 14
-  },
-  cardHeaderRow: {
-    alignItems: "center",
+  feedDots: {
+    alignSelf: "center",
     flexDirection: "row",
-    justifyContent: "space-between"
+    gap: 6,
+    marginTop: 14
   },
-  cardCountry: {
-    color: colors.tomato,
-    fontSize: 12,
+  feedDot: {
+    backgroundColor: "rgba(255, 255, 255, 0.45)",
+    borderRadius: 4,
+    height: 7,
+    width: 7
+  },
+  feedDotActive: {
+    backgroundColor: colors.accent,
+    width: 18
+  },
+  feedState: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: 28
+  },
+  feedStateTitle: {
+    color: "#FFFFFF",
+    fontSize: 24,
     fontWeight: "900",
-    textTransform: "uppercase"
-  },
-  cardTitle: {
-    color: colors.ink,
-    fontSize: 22,
-    fontWeight: "900",
-    marginTop: 5
-  },
-  cardMeta: {
-    color: colors.muted,
-    fontSize: 14,
-    marginTop: 6
-  },
-  cardSaveButton: {
-    backgroundColor: colors.tomatoSoft,
-    borderRadius: 8,
-    minWidth: 64,
-    paddingHorizontal: 10,
-    paddingVertical: 7
-  },
-  cardSaveButtonActive: {
-    backgroundColor: colors.tomato
-  },
-  cardSaveText: {
-    color: colors.tomato,
-    fontSize: 12,
-    fontWeight: "900",
+    marginTop: 14,
     textAlign: "center"
   },
-  cardSaveTextActive: {
-    color: "#ffffff"
-  },
-  tagRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 12
-  },
-  tag: {
-    backgroundColor: colors.greenSoft,
-    borderRadius: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 6
-  },
-  tagText: {
-    color: colors.green,
-    fontSize: 12,
-    fontWeight: "800"
-  },
-  stateBox: {
-    alignItems: "center",
-    backgroundColor: colors.panel,
-    borderColor: colors.line,
-    borderRadius: 8,
-    borderWidth: 1,
-    padding: 26
-  },
-  emptyTitle: {
-    color: colors.ink,
-    fontSize: 18,
-    fontWeight: "900",
-    marginTop: 10,
+  feedStateText: {
+    color: "#D8D0CA",
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: 8,
     textAlign: "center"
   },
-  emptyText: {
+  lightHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 16
+  },
+  lightTitle: {
+    color: colors.ink,
+    fontSize: 28,
+    fontWeight: "900",
+    lineHeight: 34
+  },
+  lightSubtitle: {
     color: colors.muted,
     fontSize: 14,
     lineHeight: 21,
     marginTop: 6,
     textAlign: "center"
   },
-  inlineMessage: {
-    backgroundColor: colors.greenSoft,
-    borderColor: colors.line,
-    borderRadius: 8,
-    borderWidth: 1,
-    marginBottom: 14,
-    padding: 12
-  },
-  inlineError: {
-    backgroundColor: colors.tomatoSoft,
-    borderColor: "#f3b79c"
-  },
-  inlineMessageText: {
+  lightIcon: {
     color: colors.ink,
-    fontSize: 13,
-    fontWeight: "800"
-  },
-  inlineButton: {
-    alignSelf: "flex-start",
-    marginTop: 10
-  },
-  inlineButtonText: {
-    color: colors.tomato,
     fontSize: 13,
     fontWeight: "900"
   },
+  searchInput: {
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 16,
+    borderWidth: 1,
+    color: colors.ink,
+    fontSize: 15,
+    height: 52,
+    paddingHorizontal: 16,
+    ...shadows.soft
+  },
+  sectionHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 12,
+    marginTop: 22
+  },
+  sectionTitle: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  sectionAction: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  categoryScroller: {
+    gap: 12,
+    paddingRight: 18
+  },
+  categoryChip: {
+    alignItems: "center",
+    minWidth: 70
+  },
+  categoryIcon: {
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.line,
+    borderRadius: 18,
+    borderWidth: 1,
+    color: colors.accent,
+    fontSize: 16,
+    fontWeight: "900",
+    height: 46,
+    paddingTop: 12,
+    textAlign: "center",
+    width: 46
+  },
+  categoryText: {
+    color: colors.ink,
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 7
+  },
+  countryScroller: {
+    gap: 12,
+    paddingRight: 18
+  },
+  countryCuisine: {
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 16,
+    borderWidth: 1,
+    minWidth: 108,
+    padding: 12,
+    ...shadows.soft
+  },
+  countryCuisineActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent
+  },
+  countryCuisineTitle: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  countryCuisineTitleActive: {
+    color: "#FFFFFF"
+  },
+  countryCuisineCount: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 5
+  },
+  countryCuisineCountActive: {
+    color: "#FFE7DC"
+  },
+  recipeStrip: {
+    gap: 12,
+    paddingRight: 18
+  },
+  stripCard: {
+    width: 132
+  },
+  stripImage: {
+    borderRadius: 16,
+    height: 96,
+    width: 132
+  },
+  stripTitle: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "900",
+    marginTop: 8
+  },
+  stripMeta: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 3
+  },
+  compactRow: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 12,
+    padding: 10,
+    ...shadows.soft
+  },
+  compactImage: {
+    borderRadius: 14,
+    height: 70,
+    width: 86
+  },
+  compactCopy: {
+    flex: 1
+  },
+  compactTitle: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  compactMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 6
+  },
+  compactSave: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  segmentRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 18
+  },
+  segmentPill: {
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 9
+  },
+  segmentPillActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent
+  },
+  segmentText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "800"
+  },
+  segmentTextActive: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "900"
+  },
   detailHero: {
-    backgroundColor: colors.ink
+    backgroundColor: colors.dark,
+    height: 330
   },
   detailImage: {
-    height: 330,
+    height: "100%",
     width: "100%"
   },
   detailBackButton: {
-    backgroundColor: "rgba(23, 33, 28, 0.88)",
-    borderRadius: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.92)",
+    borderRadius: 18,
     left: 18,
     paddingHorizontal: 14,
     paddingVertical: 10,
@@ -1253,131 +1596,239 @@ const styles = StyleSheet.create({
     top: 18
   },
   detailBackText: {
-    color: "#ffffff",
-    fontSize: 14,
+    color: colors.ink,
+    fontSize: 13,
     fontWeight: "900"
   },
+  detailSaveButton: {
+    backgroundColor: "rgba(255, 255, 255, 0.92)",
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    position: "absolute",
+    right: 18,
+    top: 18
+  },
+  detailSaveButtonActive: {
+    backgroundColor: colors.accent
+  },
+  detailSaveText: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  detailSaveTextActive: {
+    color: "#FFFFFF"
+  },
   detailContent: {
-    backgroundColor: colors.background,
+    backgroundColor: colors.cream,
     padding: 18
   },
-  countryText: {
-    color: colors.tomato,
-    fontSize: 13,
-    fontWeight: "900",
-    marginBottom: 5,
-    textTransform: "uppercase"
+  detailSheet: {
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 22,
+    borderWidth: 1,
+    marginTop: -64,
+    padding: 18,
+    ...shadows.soft
   },
   detailTitle: {
     color: colors.ink,
-    fontSize: 34,
+    fontSize: 28,
     fontWeight: "900",
-    lineHeight: 40
+    lineHeight: 34
+  },
+  detailMeta: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "800"
   },
   detailSubtext: {
     color: colors.muted,
     fontSize: 15,
-    marginTop: 8
+    lineHeight: 22,
+    marginTop: 12
   },
-  detailMetaGrid: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 16
-  },
-  metaTile: {
-    backgroundColor: colors.panel,
-    borderColor: colors.line,
-    borderRadius: 8,
-    borderWidth: 1,
-    flex: 1,
-    padding: 12
-  },
-  metaLabel: {
-    color: colors.muted,
-    fontSize: 11,
-    fontWeight: "900",
-    textTransform: "uppercase"
-  },
-  metaValue: {
-    color: colors.ink,
-    fontSize: 15,
-    fontWeight: "900",
-    marginTop: 4
-  },
-  favoriteButton: {
+  ratingRow: {
     alignItems: "center",
-    alignSelf: "flex-start",
-    backgroundColor: colors.panel,
-    borderColor: colors.tomato,
-    borderRadius: 8,
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 14
+  },
+  ratingText: {
+    color: colors.accent,
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  ratingCopy: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  detailTabs: {
+    gap: 10,
+    paddingVertical: 18
+  },
+  detailTab: {
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 16,
     borderWidth: 1,
-    marginBottom: 16,
-    marginTop: 16,
-    minWidth: 116,
-    paddingHorizontal: 13,
-    paddingVertical: 10
+    paddingHorizontal: 14,
+    paddingVertical: 9
   },
-  favoriteButtonSaved: {
-    backgroundColor: colors.tomato
+  detailTabActive: {
+    backgroundColor: colors.ink,
+    borderColor: colors.ink
   },
-  favoriteButtonText: {
-    color: colors.tomato,
+  detailTabText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  detailTabTextActive: {
+    color: "#FFFFFF"
+  },
+  ingredientRow: {
+    alignItems: "center",
+    backgroundColor: colors.cream,
+    borderRadius: 14,
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 10,
+    padding: 10
+  },
+  ingredientImage: {
+    borderRadius: 12,
+    height: 50,
+    width: 50
+  },
+  ingredientCopy: {
+    flex: 1
+  },
+  ingredientTitle: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  ingredientMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 3
+  },
+  addButton: {
+    color: colors.accent,
+    fontSize: 22,
+    fontWeight: "900"
+  },
+  stickyCta: {
+    backgroundColor: colors.cream,
+    borderTopColor: colors.line,
+    borderTopWidth: 1,
+    paddingBottom: 12,
+    paddingHorizontal: 18,
+    paddingTop: 10
+  },
+  cookingScreen: {
+    backgroundColor: colors.cream,
+    flex: 1,
+    paddingHorizontal: 18,
+    paddingTop: 16
+  },
+  cookingStepLabel: {
+    color: colors.ink,
     fontSize: 13,
     fontWeight: "900"
   },
-  favoriteButtonTextSaved: {
-    color: "#ffffff"
+  progressTrack: {
+    backgroundColor: colors.line,
+    borderRadius: 5,
+    height: 6,
+    overflow: "hidden"
   },
-  helperText: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "700",
-    marginBottom: 12
+  progressFill: {
+    backgroundColor: colors.accent,
+    height: 6
   },
-  panel: {
-    backgroundColor: colors.panel,
-    borderColor: colors.line,
-    borderRadius: 8,
-    borderWidth: 1,
-    marginBottom: 16,
-    padding: 16
-  },
-  sectionTitle: {
+  cookingTitle: {
     color: colors.ink,
-    fontSize: 20,
+    fontSize: 26,
     fontWeight: "900",
-    marginBottom: 12
+    lineHeight: 32,
+    marginTop: 28
   },
-  listItem: {
+  cookingInstruction: {
+    color: colors.ink,
+    fontSize: 18,
+    lineHeight: 28,
+    marginTop: 18
+  },
+  cookingImage: {
+    borderRadius: 22,
+    height: 260,
+    marginTop: 24,
+    width: "100%"
+  },
+  timerCircle: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.accent,
+    borderRadius: 42,
+    borderWidth: 3,
+    height: 84,
+    justifyContent: "center",
+    marginTop: -32,
+    width: 84
+  },
+  timerText: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  timerLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "700",
+    marginTop: 2
+  },
+  cookingControls: {
+    alignItems: "center",
     flexDirection: "row",
-    gap: 10,
-    marginBottom: 11
-  },
-  bullet: {
-    color: colors.tomato,
-    fontSize: 14,
-    fontWeight: "900",
-    minWidth: 22
-  },
-  listText: {
-    color: "#33423a",
-    flex: 1,
-    fontSize: 15,
-    lineHeight: 22
+    justifyContent: "space-between",
+    marginTop: 30
   },
   authContainer: {
-    paddingBottom: 28,
-    paddingTop: 22
+    paddingBottom: 110,
+    paddingTop: 12
+  },
+  authArt: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: colors.accentSoft,
+    borderRadius: 48,
+    height: 96,
+    justifyContent: "center",
+    marginBottom: 18,
+    width: 96
+  },
+  authArtText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "center"
   },
   authModeRow: {
     flexDirection: "row",
     gap: 10,
-    marginTop: 18
+    marginTop: 22
   },
   authModeButton: {
-    backgroundColor: colors.panel,
+    backgroundColor: colors.card,
     borderColor: colors.line,
-    borderRadius: 8,
+    borderRadius: 16,
     borderWidth: 1,
     flex: 1,
     paddingVertical: 12
@@ -1393,92 +1844,189 @@ const styles = StyleSheet.create({
     textAlign: "center"
   },
   authModeTextActive: {
-    color: "#ffffff"
+    color: "#FFFFFF"
   },
   formInput: {
-    backgroundColor: colors.panel,
+    backgroundColor: colors.card,
     borderColor: colors.line,
-    borderRadius: 8,
+    borderRadius: 16,
     borderWidth: 1,
     color: colors.ink,
     fontSize: 15,
-    height: 50,
+    height: 52,
     marginTop: 12,
-    paddingHorizontal: 14
+    paddingHorizontal: 16
+  },
+  forgotText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 10,
+    textAlign: "right"
+  },
+  socialRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 16
+  },
+  socialButton: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 16,
+    borderWidth: 1,
+    flex: 1,
+    paddingVertical: 13
+  },
+  socialText: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "900"
   },
   primaryButton: {
     alignItems: "center",
-    backgroundColor: colors.tomato,
-    borderRadius: 8,
+    backgroundColor: colors.accent,
+    borderRadius: 16,
     marginTop: 16,
+    paddingVertical: 15
+  },
+  primaryButtonSmall: {
+    alignItems: "center",
+    backgroundColor: colors.accent,
+    borderRadius: 24,
+    minWidth: 120,
+    paddingHorizontal: 18,
     paddingVertical: 14
   },
   greenButton: {
     backgroundColor: colors.green
   },
-  primaryButtonDisabled: {
-    opacity: 0.65
+  disabledButton: {
+    opacity: 0.55
   },
   primaryButtonText: {
-    color: "#ffffff",
+    color: "#FFFFFF",
     fontSize: 15,
     fontWeight: "900"
   },
   secondaryButton: {
     alignItems: "center",
-    backgroundColor: colors.panel,
+    backgroundColor: colors.card,
     borderColor: colors.line,
-    borderRadius: 8,
+    borderRadius: 16,
     borderWidth: 1,
     marginTop: 10,
+    paddingHorizontal: 18,
     paddingVertical: 14
   },
   secondaryButtonText: {
     color: colors.ink,
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "900"
   },
   profileContainer: {
     paddingBottom: 28,
-    paddingTop: 22
+    paddingTop: 12
   },
-  paywallContainer: {
-    paddingBottom: 28,
-    paddingTop: 18
+  profileTop: {
+    alignItems: "center",
+    marginBottom: 20
+  },
+  profileAvatar: {
+    alignItems: "center",
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.accent,
+    borderRadius: 46,
+    borderWidth: 2,
+    height: 92,
+    justifyContent: "center",
+    marginBottom: 12,
+    width: 92
+  },
+  profileAvatarText: {
+    color: colors.accent,
+    fontSize: 34,
+    fontWeight: "900"
+  },
+  statsRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 16
+  },
+  statTile: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 16,
+    borderWidth: 1,
+    flex: 1,
+    padding: 12
+  },
+  statValue: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  statLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "800",
+    marginTop: 4,
+    textAlign: "center"
   },
   subscriptionPanel: {
     backgroundColor: colors.ink,
-    borderRadius: 8,
+    borderRadius: 22,
     marginBottom: 16,
-    marginTop: 16,
-    padding: 16
+    padding: 18
   },
   subscriptionLabel: {
-    color: "#b8f1d8",
+    color: colors.accent,
     fontSize: 12,
     fontWeight: "900",
     textTransform: "uppercase"
   },
   subscriptionTitle: {
-    color: "#ffffff",
-    fontSize: 22,
+    color: "#FFFFFF",
+    fontSize: 24,
     fontWeight: "900",
-    marginTop: 5
+    marginTop: 6
   },
   subscriptionText: {
-    color: "#dbe8df",
+    color: "#F1E5DC",
     fontSize: 14,
     lineHeight: 21,
     marginTop: 8
   },
   paywallHero: {
-    backgroundColor: colors.ink,
-    borderRadius: 8,
+    backgroundColor: colors.darkSoft,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 24,
+    borderWidth: 1,
     marginTop: 16,
-    padding: 18
+    padding: 20
+  },
+  paywallTitle: {
+    color: "#FFFFFF",
+    fontSize: 34,
+    fontWeight: "900",
+    lineHeight: 40,
+    marginTop: 10
+  },
+  darkBackButton: {
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10
+  },
+  darkBackText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "900"
   },
   paywallDivider: {
-    backgroundColor: "rgba(255, 255, 255, 0.16)",
+    backgroundColor: "rgba(255, 255, 255, 0.14)",
     height: 1,
     marginVertical: 18
   },
@@ -1488,12 +2036,12 @@ const styles = StyleSheet.create({
     marginBottom: 18
   },
   paywallPrice: {
-    color: "#ffffff",
+    color: "#FFFFFF",
     fontSize: 34,
     fontWeight: "900"
   },
   paywallPeriod: {
-    color: "#dbe8df",
+    color: "#E5D8CE",
     fontSize: 15,
     fontWeight: "800",
     marginBottom: 6,
@@ -1506,54 +2054,107 @@ const styles = StyleSheet.create({
     marginBottom: 12
   },
   benefitDot: {
-    backgroundColor: colors.tomato,
+    backgroundColor: colors.accent,
     borderRadius: 6,
     height: 12,
     width: 12
   },
   benefitText: {
-    color: "#ffffff",
+    color: "#FFFFFF",
     flex: 1,
     fontSize: 15,
     fontWeight: "800",
     lineHeight: 21
   },
   paywallFootnote: {
-    color: "#dbe8df",
+    color: "#E5D8CE",
     fontSize: 12,
     fontWeight: "700",
     lineHeight: 18,
     marginTop: 12,
     textAlign: "center"
   },
-  savedRecipeRow: {
+  panel: {
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 18,
+    borderWidth: 1,
+    marginBottom: 16,
+    padding: 16,
+    ...shadows.soft
+  },
+  menuPanel: {
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: "hidden"
+  },
+  menuRow: {
     alignItems: "center",
     borderBottomColor: colors.line,
     borderBottomWidth: 1,
     flexDirection: "row",
-    gap: 12,
-    paddingVertical: 10
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 15
   },
-  savedRecipeImage: {
-    borderRadius: 8,
-    height: 56,
-    width: 56
-  },
-  savedRecipeCopy: {
-    flex: 1
-  },
-  savedRecipeTitle: {
+  menuText: {
     color: colors.ink,
-    fontSize: 16,
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  menuArrow: {
+    color: colors.muted,
+    fontSize: 20,
     fontWeight: "900"
   },
-  savedRecipeMeta: {
+  stateBox: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 26
+  },
+  emptyTitle: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: "900",
+    textAlign: "center"
+  },
+  emptyText: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 6,
+    textAlign: "center"
+  },
+  listItem: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 11
+  },
+  bullet: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: "900",
+    minWidth: 22
+  },
+  listText: {
+    color: "#3A302A",
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 22
+  },
+  helperText: {
     color: colors.muted,
     fontSize: 13,
-    marginTop: 3
+    fontWeight: "700",
+    marginTop: 10
   },
   errorText: {
-    color: "#a02c20",
+    color: "#A93720",
     fontSize: 13,
     fontWeight: "800",
     marginTop: 8
@@ -1563,5 +2164,47 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
     marginTop: 8
+  },
+  bottomNav: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 24,
+    borderWidth: 1,
+    bottom: 14,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    position: "absolute",
+    width: "92%",
+    ...shadows.soft
+  },
+  navItem: {
+    alignItems: "center",
+    flex: 1
+  },
+  navDot: {
+    backgroundColor: "transparent",
+    borderRadius: 4,
+    height: 7,
+    marginBottom: 5,
+    width: 7
+  },
+  navDotActive: {
+    backgroundColor: colors.accent
+  },
+  navText: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "800"
+  },
+  navTextActive: {
+    color: colors.accent,
+    fontWeight: "900"
+  },
+  bottomSpacer: {
+    height: 104
   }
 });

@@ -1209,11 +1209,31 @@ function FavoritesScreen({
     }
   }
 
+  const savedCount = recipes.length;
+  const collectionRecipeCount = collections.reduce(
+    (total, collection) => total + collection.recipeIds.length,
+    0
+  );
+
   return (
     <ScrollView style={styles.lightScreen} showsVerticalScrollIndicator={false}>
-      <View style={styles.lightHeader}>
-        <Text style={styles.lightTitle}>Favorites</Text>
-        <Text style={styles.lightIcon}>Saved</Text>
+      <View style={styles.savedHero}>
+        <View>
+          <Text style={styles.exploreEyebrow}>Your kitchen</Text>
+          <Text style={styles.lightTitle}>Saved recipes</Text>
+          <Text style={styles.exploreSubtitle}>
+            Keep favorite dishes, collections, and cooking ideas ready.
+          </Text>
+        </View>
+        <View style={styles.savedHeroStats}>
+          <Text style={styles.savedHeroNumber}>{savedCount}</Text>
+          <Text style={styles.savedHeroLabel}>saved</Text>
+        </View>
+      </View>
+      <View style={styles.favoriteSummaryRow}>
+        <MiniSummary value={collections.length} label="Collections" />
+        <MiniSummary value={collectionRecipeCount} label="Collected" />
+        <MiniSummary value="0" label="Videos" />
       </View>
       <View style={styles.segmentRow}>
         <Pressable
@@ -1255,6 +1275,7 @@ function FavoritesScreen({
             <Text style={styles.emptyText}>
               Save dishes from the home feed and they will appear here.
             </Text>
+            <Text style={styles.emptyHint}>Tip: tap Save on a recipe card.</Text>
           </View>
         )
       ) : null}
@@ -1262,7 +1283,13 @@ function FavoritesScreen({
       {mode === "collections" ? (
         <View>
           <View style={styles.collectionCreatePanel}>
-            <Text style={styles.sectionTitle}>Create Collection</Text>
+            <View style={styles.panelHeader}>
+              <View>
+                <Text style={styles.sectionTitle}>Create Collection</Text>
+                <Text style={styles.panelSubtitle}>Group recipes for meals or moods</Text>
+              </View>
+              <Text style={styles.panelBadge}>+</Text>
+            </View>
             <TextInput
               value={collectionName}
               onChangeText={setCollectionName}
@@ -1300,6 +1327,15 @@ function FavoritesScreen({
   );
 }
 
+function MiniSummary({ value, label }) {
+  return (
+    <View style={styles.miniSummary}>
+      <Text style={styles.miniSummaryValue}>{value}</Text>
+      <Text style={styles.miniSummaryLabel}>{label}</Text>
+    </View>
+  );
+}
+
 function CollectionCard({
   allRecipes,
   collection,
@@ -1327,6 +1363,17 @@ function CollectionCard({
           <Text style={styles.deleteItemText}>Delete</Text>
         </Pressable>
       </View>
+      {collectionRecipes.length ? (
+        <View style={styles.collectionPreviewRow}>
+          {collectionRecipes.slice(0, 3).map((recipe) => (
+            <Image
+              key={`${collection.id}-${recipe.id}-preview`}
+              source={{ uri: recipe.image }}
+              style={styles.collectionPreviewImage}
+            />
+          ))}
+        </View>
+      ) : null}
       {collectionRecipes.length ? (
         collectionRecipes.map((recipe) => (
           <View key={recipe.id} style={styles.collectionRecipeRow}>
@@ -2136,6 +2183,7 @@ function ProfileScreen({
   const [fullName, setFullName] = useState(session.user.fullName);
   const [status, setStatus] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const displayName = session.user.fullName || "Food Lover";
 
   async function handleSave() {
     setIsSaving(true);
@@ -2154,14 +2202,31 @@ function ProfileScreen({
 
   return (
     <View style={styles.profileContainer}>
-      <View style={styles.profileTop}>
-        <View style={styles.profileAvatar}>
-          <Text style={styles.profileAvatarText}>
-            {session.user.fullName?.slice(0, 1).toUpperCase() || "U"}
-          </Text>
+      <View style={styles.profileHero}>
+        <View style={styles.profileHeroTop}>
+          <View style={styles.profileAvatar}>
+            <Text style={styles.profileAvatarText}>
+              {displayName.slice(0, 1).toUpperCase()}
+            </Text>
+          </View>
+          <View
+            style={[
+              styles.planBadge,
+              hasSubscription ? styles.planBadgePremium : styles.planBadgeFree
+            ]}
+          >
+            <Text
+              style={[
+                styles.planBadgeText,
+                hasSubscription && styles.planBadgeTextPremium
+              ]}
+            >
+              {hasSubscription ? "Premium Preview" : "Free Plan"}
+            </Text>
+          </View>
         </View>
-        <Text style={styles.lightTitle}>{session.user.fullName}</Text>
-        <Text style={styles.lightSubtitle}>{session.user.email}</Text>
+        <Text style={styles.profileName}>{displayName}</Text>
+        <Text style={styles.profileEmail}>{session.user.email}</Text>
       </View>
       {favoriteError ? <Text style={styles.errorText}>{favoriteError}</Text> : null}
 
@@ -2172,7 +2237,12 @@ function ProfileScreen({
       </View>
 
       <View style={styles.subscriptionPanel}>
-        <Text style={styles.subscriptionLabel}>Subscription</Text>
+        <View style={styles.subscriptionHeader}>
+          <Text style={styles.subscriptionLabel}>Subscription</Text>
+          <Text style={styles.subscriptionStatus}>
+            {hasSubscription ? "Unlocked" : "Limited"}
+          </Text>
+        </View>
         <Text style={styles.subscriptionTitle}>
           {hasSubscription ? "Premium active" : "Free plan"}
         </Text>
@@ -2192,7 +2262,12 @@ function ProfileScreen({
       </View>
 
       <View style={styles.panel}>
-        <Text style={styles.sectionTitle}>Account</Text>
+        <View style={styles.panelHeader}>
+          <View>
+            <Text style={styles.sectionTitle}>Account</Text>
+            <Text style={styles.panelSubtitle}>Keep your cooking profile updated</Text>
+          </View>
+        </View>
         <TextInput
           value={fullName}
           onChangeText={setFullName}
@@ -3224,6 +3299,63 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "900"
   },
+  savedHero: {
+    alignItems: "flex-start",
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 22,
+    borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 12,
+    padding: 16,
+    ...shadows.soft
+  },
+  savedHeroStats: {
+    alignItems: "center",
+    backgroundColor: colors.accent,
+    borderRadius: 18,
+    minWidth: 62,
+    paddingHorizontal: 11,
+    paddingVertical: 10
+  },
+  savedHeroNumber: {
+    color: "#FFFFFF",
+    fontSize: 20,
+    fontWeight: "900"
+  },
+  savedHeroLabel: {
+    color: "#FFE8DE",
+    fontSize: 10,
+    fontWeight: "900",
+    marginTop: 2
+  },
+  favoriteSummaryRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 14
+  },
+  miniSummary: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 16,
+    borderWidth: 1,
+    flex: 1,
+    padding: 12
+  },
+  miniSummaryValue: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  miniSummaryLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "900",
+    marginTop: 4,
+    textAlign: "center"
+  },
   collectionCreatePanel: {
     backgroundColor: colors.card,
     borderColor: colors.line,
@@ -3258,6 +3390,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     marginTop: 4
+  },
+  collectionPreviewRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 8
+  },
+  collectionPreviewImage: {
+    borderRadius: 14,
+    height: 76,
+    width: 86
   },
   collectionRecipeRow: {
     alignItems: "center",
@@ -3942,9 +4084,20 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
     paddingTop: 12
   },
-  profileTop: {
+  profileHero: {
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 24,
+    borderWidth: 1,
+    marginBottom: 16,
+    padding: 18,
+    ...shadows.soft
+  },
+  profileHeroTop: {
     alignItems: "center",
-    marginBottom: 20
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 14
   },
   profileAvatar: {
     alignItems: "center",
@@ -3954,13 +4107,43 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     height: 92,
     justifyContent: "center",
-    marginBottom: 12,
     width: 92
   },
   profileAvatarText: {
     color: colors.accent,
     fontSize: 34,
     fontWeight: "900"
+  },
+  profileName: {
+    color: colors.ink,
+    fontSize: 28,
+    fontWeight: "900",
+    lineHeight: 34
+  },
+  profileEmail: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "700",
+    marginTop: 5
+  },
+  planBadge: {
+    borderRadius: 15,
+    paddingHorizontal: 12,
+    paddingVertical: 9
+  },
+  planBadgeFree: {
+    backgroundColor: colors.accentSoft
+  },
+  planBadgePremium: {
+    backgroundColor: colors.ink
+  },
+  planBadgeText: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  planBadgeTextPremium: {
+    color: "#FFFFFF"
   },
   statsRow: {
     flexDirection: "row",
@@ -3994,11 +4177,26 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     padding: 18
   },
+  subscriptionHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
   subscriptionLabel: {
     color: colors.accent,
     fontSize: 12,
     fontWeight: "900",
     textTransform: "uppercase"
+  },
+  subscriptionStatus: {
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+    borderRadius: 12,
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: 9,
+    paddingVertical: 6
   },
   subscriptionTitle: {
     color: "#FFFFFF",
@@ -4252,6 +4450,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
     marginTop: 6,
+    textAlign: "center"
+  },
+  emptyHint: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: "900",
+    marginTop: 12,
     textAlign: "center"
   },
   listItem: {

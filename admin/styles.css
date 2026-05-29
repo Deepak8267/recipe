@@ -209,6 +209,19 @@ button {
   margin: 0;
 }
 
+.reviewRow {
+  align-items: flex-start;
+}
+
+.reviewComment {
+  background: #fff8f0;
+  border: 1px solid #ead8c8;
+  border-radius: 8px;
+  color: #3f3028;
+  margin: 10px 0;
+  padding: 10px;
+}
+
 .recipeRow p {
   margin: 5px 0 9px;
 }

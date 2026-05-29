@@ -10,6 +10,7 @@ const elements = {
   loginPanel: document.querySelector("#loginPanel"),
   recipePanel: document.querySelector("#recipePanel"),
   managePanel: document.querySelector("#managePanel"),
+  reviewsPanel: document.querySelector("#reviewsPanel"),
   logoutButton: document.querySelector("#logoutButton"),
   emailInput: document.querySelector("#emailInput"),
   passwordInput: document.querySelector("#passwordInput"),
@@ -34,7 +35,9 @@ const elements = {
   cancelEditButton: document.querySelector("#cancelEditButton"),
   saveButton: document.querySelector("#saveButton"),
   refreshButton: document.querySelector("#refreshButton"),
+  refreshReviewsButton: document.querySelector("#refreshReviewsButton"),
   recipeList: document.querySelector("#recipeList"),
+  reviewList: document.querySelector("#reviewList"),
   recipeStatus: document.querySelector("#recipeStatus")
 };
 
@@ -51,6 +54,7 @@ elements.logoutButton.addEventListener("click", handleLogout);
 elements.saveButton.addEventListener("click", handleSaveRecipe);
 elements.cancelEditButton.addEventListener("click", clearRecipeForm);
 elements.refreshButton.addEventListener("click", loadRecipeList);
+elements.refreshReviewsButton.addEventListener("click", loadReviewList);
 
 async function handleLogin() {
   setStatus(elements.loginStatus, "");
@@ -72,8 +76,10 @@ async function handleLogin() {
     elements.loginPanel.classList.add("hidden");
     elements.recipePanel.classList.remove("hidden");
     elements.managePanel.classList.remove("hidden");
+    elements.reviewsPanel.classList.remove("hidden");
     elements.logoutButton.classList.remove("hidden");
     await loadRecipeList();
+    await loadReviewList();
   } catch (error) {
     setStatus(elements.loginStatus, error.message, "error");
   } finally {
@@ -88,9 +94,11 @@ function handleLogout() {
   elements.passwordInput.value = "";
   elements.recipePanel.classList.add("hidden");
   elements.managePanel.classList.add("hidden");
+  elements.reviewsPanel.classList.add("hidden");
   elements.logoutButton.classList.add("hidden");
   elements.loginPanel.classList.remove("hidden");
   elements.recipeList.innerHTML = "";
+  elements.reviewList.innerHTML = "";
 }
 
 async function handleSaveRecipe() {
@@ -165,6 +173,96 @@ async function loadRecipeList() {
     elements.recipeList.innerHTML = `<p class="status error">${escapeHtml(
       error.message
     )}</p>`;
+  }
+}
+
+async function loadReviewList() {
+  elements.reviewList.innerHTML = '<p class="muted">Loading reviews...</p>';
+
+  try {
+    const select = [
+      "id",
+      "rating",
+      "comment",
+      "created_at",
+      "user_id",
+      "recipes(title,countries(name))"
+    ].join(",");
+    const reviews = await request(
+      `/rest/v1/recipe_reviews?select=${encodeURIComponent(
+        select
+      )}&order=created_at.desc&limit=50`,
+      {
+        authed: true
+      }
+    );
+
+    renderReviewList(reviews);
+  } catch (error) {
+    elements.reviewList.innerHTML = `<p class="status error">${escapeHtml(
+      error.message
+    )}</p>`;
+  }
+}
+
+function renderReviewList(reviews) {
+  if (!reviews.length) {
+    elements.reviewList.innerHTML = '<p class="muted">No reviews yet.</p>';
+    return;
+  }
+
+  elements.reviewList.innerHTML = reviews
+    .map(
+      (review) => `
+        <article class="recipeRow reviewRow">
+          <div>
+            <h3>${escapeHtml(review.recipes?.title || "Unknown recipe")}</h3>
+            <p>${escapeHtml(review.recipes?.countries?.name || "Unknown country")} - ${
+        review.rating
+      }/5 - ${formatDate(review.created_at)}</p>
+            <p class="reviewComment">${escapeHtml(review.comment || "No comment")}</p>
+            <span class="badge draft">User ${escapeHtml(shortId(review.user_id))}</span>
+          </div>
+          <div class="recipeActions">
+            <button
+              class="danger"
+              type="button"
+              data-review-action="delete"
+              data-id="${review.id}"
+            >
+              Delete review
+            </button>
+          </div>
+        </article>
+      `
+    )
+    .join("");
+
+  elements.reviewList.querySelectorAll("button[data-review-action]").forEach((button) => {
+    button.addEventListener("click", () => handleReviewAction(button));
+  });
+}
+
+async function handleReviewAction(button) {
+  const reviewId = button.dataset.id;
+  const action = button.dataset.reviewAction;
+  button.disabled = true;
+
+  try {
+    if (action === "delete") {
+      const confirmed = window.confirm("Delete this review?");
+      if (!confirmed) {
+        button.disabled = false;
+        return;
+      }
+
+      await deleteReview(reviewId);
+    }
+
+    await loadReviewList();
+  } catch (error) {
+    alert(error.message);
+    button.disabled = false;
   }
 }
 
@@ -356,6 +454,13 @@ async function updateRecipe(recipeId, countryId, categoryId, imageUrl) {
 
 async function deleteRecipe(recipeId) {
   await request(`/rest/v1/recipes?id=eq.${encodeURIComponent(recipeId)}`, {
+    method: "DELETE",
+    authed: true
+  });
+}
+
+async function deleteReview(reviewId) {
+  await request(`/rest/v1/recipe_reviews?id=eq.${encodeURIComponent(reviewId)}`, {
     method: "DELETE",
     authed: true
   });
@@ -634,6 +739,22 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function formatDate(value) {
+  if (!value) {
+    return "Unknown date";
+  }
+
+  return new Date(value).toLocaleDateString();
+}
+
+function shortId(value) {
+  if (!value) {
+    return "unknown";
+  }
+
+  return `${value.slice(0, 8)}...`;
 }
 
 function setStatus(element, message, type = "") {

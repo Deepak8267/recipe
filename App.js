@@ -30,6 +30,7 @@ const onboardingFallbackImage =
   "https://images.unsplash.com/photo-1551183053-bf91a1d81141?auto=format&fit=crop&w=1200&q=80";
 const onboardingStorageKey = "world-recipes-onboarding-complete";
 const shoppingListStorageKey = "world-recipes-shopping-list";
+const collectionsStorageKey = "world-recipes-collections";
 
 export default function App() {
   const [recipes, setRecipes] = useState([]);
@@ -47,11 +48,14 @@ export default function App() {
   const [cookingRecipe, setCookingRecipe] = useState(null);
   const [entryStep, setEntryStep] = useState("loading");
   const [shoppingItems, setShoppingItems] = useState([]);
+  const [collections, setCollections] = useState([]);
+  const [favoritesMode, setFavoritesMode] = useState("recipes");
 
   useEffect(() => {
     loadRecipes();
     loadEntryStep();
     loadShoppingList();
+    loadCollections();
   }, []);
 
   useEffect(() => {
@@ -134,6 +138,25 @@ export default function App() {
     }
   }
 
+  async function loadCollections() {
+    try {
+      const storedCollections = await AsyncStorage.getItem(collectionsStorageKey);
+      setCollections(storedCollections ? JSON.parse(storedCollections) : []);
+    } catch {
+      setCollections([]);
+    }
+  }
+
+  async function saveCollections(nextCollections) {
+    setCollections(nextCollections);
+
+    try {
+      await AsyncStorage.setItem(collectionsStorageKey, JSON.stringify(nextCollections));
+    } catch {
+      // Collections still work in memory if storage is unavailable.
+    }
+  }
+
   const countries = useMemo(
     () => ["All", ...new Set(recipes.map((recipe) => recipe.country))],
     [recipes]
@@ -213,6 +236,9 @@ export default function App() {
   function changeView(view) {
     setActiveRecipe(null);
     setCookingRecipe(null);
+    if (view === "favorites") {
+      setFavoritesMode("recipes");
+    }
     setCurrentView(view);
   }
 
@@ -311,6 +337,78 @@ export default function App() {
     saveShoppingItems(shoppingItems.filter((item) => !item.checked));
   }
 
+  function createCollection(name, initialRecipeId = "") {
+    const cleanName = name.trim();
+
+    if (!cleanName) {
+      return null;
+    }
+
+    const existingCollection = collections.find(
+      (collection) => collection.name.toLowerCase() === cleanName.toLowerCase()
+    );
+
+    if (existingCollection) {
+      if (initialRecipeId && !existingCollection.recipeIds.includes(initialRecipeId)) {
+        const updatedCollection = {
+          ...existingCollection,
+          recipeIds: [...existingCollection.recipeIds, initialRecipeId]
+        };
+        saveCollections(
+          collections.map((collection) =>
+            collection.id === existingCollection.id ? updatedCollection : collection
+          )
+        );
+        return updatedCollection;
+      }
+
+      return existingCollection;
+    }
+
+    const collection = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      name: cleanName,
+      recipeIds: initialRecipeId ? [initialRecipeId] : []
+    };
+    saveCollections([...collections, collection]);
+    return collection;
+  }
+
+  function addRecipeToCollection(collectionId, recipeId) {
+    saveCollections(
+      collections.map((collection) =>
+        collection.id === collectionId
+          ? {
+              ...collection,
+              recipeIds: [...new Set([...collection.recipeIds, recipeId])]
+            }
+          : collection
+      )
+    );
+  }
+
+  function removeRecipeFromCollection(collectionId, recipeId) {
+    saveCollections(
+      collections.map((collection) =>
+        collection.id === collectionId
+          ? {
+              ...collection,
+              recipeIds: collection.recipeIds.filter((id) => id !== recipeId)
+            }
+          : collection
+      )
+    );
+  }
+
+  function deleteCollection(collectionId) {
+    saveCollections(collections.filter((collection) => collection.id !== collectionId));
+  }
+
+  function openCollections() {
+    setFavoritesMode("collections");
+    setCurrentView("favorites");
+  }
+
   if (entryStep === "loading") {
     return (
       <SafeAreaView style={styles.darkSafeArea}>
@@ -364,8 +462,11 @@ export default function App() {
         saved={favoriteIds.includes(activeRecipe.id)}
         session={session}
         signedIn={Boolean(session)}
+        collections={collections}
         onAddIngredient={addIngredientToShoppingList}
+        onAddRecipeToCollection={addRecipeToCollection}
         onBack={() => setActiveRecipe(null)}
+        onCreateCollection={createCollection}
         onStartCooking={() => setCookingRecipe(activeRecipe)}
         onToggleFavorite={() => toggleFavorite(activeRecipe.id)}
       />
@@ -430,8 +531,15 @@ export default function App() {
 
       {currentView === "favorites" ? (
         <FavoritesScreen
+          allRecipes={recipes}
+          collections={collections}
+          mode={favoritesMode}
           recipes={savedRecipes}
+          onCreateCollection={createCollection}
+          onDeleteCollection={deleteCollection}
+          onModeChange={setFavoritesMode}
           onOpenRecipe={openRecipe}
+          onRemoveFromCollection={removeRecipeFromCollection}
         />
       ) : null}
 
@@ -452,9 +560,11 @@ export default function App() {
               hasSubscription={hasSubscription}
               session={session}
               savedRecipes={savedRecipes}
+              collectionsCount={collections.length}
               shoppingCount={shoppingItems.length}
               onOpenSubscription={openSubscription}
               onLogout={handleLogout}
+              onOpenCollections={openCollections}
               onOpenShoppingList={() => setCurrentView("shopping")}
               onSessionChange={setSession}
             />
@@ -938,7 +1048,27 @@ function HorizontalRecipeStrip({ recipes, onOpenRecipe }) {
   );
 }
 
-function FavoritesScreen({ recipes, onOpenRecipe }) {
+function FavoritesScreen({
+  allRecipes,
+  collections,
+  mode,
+  recipes,
+  onCreateCollection,
+  onDeleteCollection,
+  onModeChange,
+  onOpenRecipe,
+  onRemoveFromCollection
+}) {
+  const [collectionName, setCollectionName] = useState("");
+
+  function handleCreateCollection() {
+    const collection = onCreateCollection(collectionName);
+    if (collection) {
+      setCollectionName("");
+      onModeChange("collections");
+    }
+  }
+
   return (
     <ScrollView style={styles.lightScreen} showsVerticalScrollIndicator={false}>
       <View style={styles.lightHeader}>
@@ -946,36 +1076,142 @@ function FavoritesScreen({ recipes, onOpenRecipe }) {
         <Text style={styles.lightIcon}>Saved</Text>
       </View>
       <View style={styles.segmentRow}>
-        <View style={[styles.segmentPill, styles.segmentPillActive]}>
-          <Text style={styles.segmentTextActive}>All Recipes</Text>
-        </View>
-        <View style={styles.segmentPill}>
-          <Text style={styles.segmentText}>Collections</Text>
-        </View>
+        <Pressable
+          onPress={() => onModeChange("recipes")}
+          style={[styles.segmentPill, mode === "recipes" && styles.segmentPillActive]}
+        >
+          <Text style={mode === "recipes" ? styles.segmentTextActive : styles.segmentText}>
+            All Recipes
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => onModeChange("collections")}
+          style={[styles.segmentPill, mode === "collections" && styles.segmentPillActive]}
+        >
+          <Text
+            style={mode === "collections" ? styles.segmentTextActive : styles.segmentText}
+          >
+            Collections
+          </Text>
+        </Pressable>
         <View style={styles.segmentPill}>
           <Text style={styles.segmentText}>Videos</Text>
         </View>
       </View>
 
-      {recipes.length ? (
-        recipes.map((recipe) => (
-          <CompactRecipeRow
-            key={recipe.id}
-            recipe={recipe}
-            saved
-            onPress={() => onOpenRecipe(recipe)}
-          />
-        ))
-      ) : (
-        <View style={styles.stateBox}>
-          <Text style={styles.emptyTitle}>No saved recipes</Text>
-          <Text style={styles.emptyText}>
-            Save dishes from the home feed and they will appear here.
-          </Text>
+      {mode === "recipes" ? (
+        recipes.length ? (
+          recipes.map((recipe) => (
+            <CompactRecipeRow
+              key={recipe.id}
+              recipe={recipe}
+              saved
+              onPress={() => onOpenRecipe(recipe)}
+            />
+          ))
+        ) : (
+          <View style={styles.stateBox}>
+            <Text style={styles.emptyTitle}>No saved recipes</Text>
+            <Text style={styles.emptyText}>
+              Save dishes from the home feed and they will appear here.
+            </Text>
+          </View>
+        )
+      ) : null}
+
+      {mode === "collections" ? (
+        <View>
+          <View style={styles.collectionCreatePanel}>
+            <Text style={styles.sectionTitle}>Create Collection</Text>
+            <TextInput
+              value={collectionName}
+              onChangeText={setCollectionName}
+              placeholder="Quick Dinners"
+              placeholderTextColor={colors.muted}
+              style={styles.formInput}
+            />
+            <Pressable onPress={handleCreateCollection} style={styles.primaryButton}>
+              <Text style={styles.primaryButtonText}>Create collection</Text>
+            </Pressable>
+          </View>
+          {collections.length ? (
+            collections.map((collection) => (
+              <CollectionCard
+                key={collection.id}
+                allRecipes={allRecipes}
+                collection={collection}
+                onDeleteCollection={onDeleteCollection}
+                onOpenRecipe={onOpenRecipe}
+                onRemoveFromCollection={onRemoveFromCollection}
+              />
+            ))
+          ) : (
+            <View style={styles.stateBox}>
+              <Text style={styles.emptyTitle}>No collections yet</Text>
+              <Text style={styles.emptyText}>
+                Create collections for quick dinners, desserts, or country favorites.
+              </Text>
+            </View>
+          )}
         </View>
-      )}
+      ) : null}
       <View style={styles.bottomSpacer} />
     </ScrollView>
+  );
+}
+
+function CollectionCard({
+  allRecipes,
+  collection,
+  onDeleteCollection,
+  onOpenRecipe,
+  onRemoveFromCollection
+}) {
+  const collectionRecipes = collection.recipeIds
+    .map((recipeId) => allRecipes.find((recipe) => recipe.id === recipeId))
+    .filter(Boolean);
+
+  return (
+    <View style={styles.collectionCard}>
+      <View style={styles.collectionHeader}>
+        <View>
+          <Text style={styles.collectionTitle}>{collection.name}</Text>
+          <Text style={styles.collectionMeta}>
+            {collectionRecipes.length} recipe{collectionRecipes.length === 1 ? "" : "s"}
+          </Text>
+        </View>
+        <Pressable
+          onPress={() => onDeleteCollection(collection.id)}
+          style={styles.deleteItemButton}
+        >
+          <Text style={styles.deleteItemText}>Delete</Text>
+        </Pressable>
+      </View>
+      {collectionRecipes.length ? (
+        collectionRecipes.map((recipe) => (
+          <View key={recipe.id} style={styles.collectionRecipeRow}>
+            <Pressable
+              onPress={() => onOpenRecipe(recipe)}
+              style={styles.collectionRecipeButton}
+            >
+              <Image source={{ uri: recipe.image }} style={styles.collectionRecipeImage} />
+              <View style={styles.collectionRecipeCopy}>
+                <Text style={styles.compactTitle}>{recipe.title}</Text>
+                <Text style={styles.compactMeta}>{recipe.country}</Text>
+              </View>
+            </Pressable>
+            <Pressable
+              onPress={() => onRemoveFromCollection(collection.id, recipe.id)}
+              style={styles.deleteItemButton}
+            >
+              <Text style={styles.deleteItemText}>Remove</Text>
+            </Pressable>
+          </View>
+        ))
+      ) : (
+        <Text style={styles.emptyText}>Add recipes from the recipe detail page.</Text>
+      )}
+    </View>
   );
 }
 
@@ -1044,13 +1280,16 @@ function ShoppingListScreen({ items, onClearChecked, onDeleteItem, onToggleItem 
 }
 
 function RecipeDetailScreen({
+  collections,
   favoriteError,
   recipe,
   saved,
   session,
   signedIn,
   onAddIngredient,
+  onAddRecipeToCollection,
   onBack,
+  onCreateCollection,
   onStartCooking,
   onToggleFavorite
 }) {
@@ -1155,6 +1394,12 @@ function RecipeDetailScreen({
               <Text style={styles.helperText}>Login first to save this recipe.</Text>
             ) : null}
             {favoriteError ? <Text style={styles.errorText}>{favoriteError}</Text> : null}
+            <CollectionPicker
+              collections={collections}
+              recipe={recipe}
+              onAddRecipeToCollection={onAddRecipeToCollection}
+              onCreateCollection={onCreateCollection}
+            />
           </View>
 
           <ScrollView
@@ -1282,6 +1527,105 @@ function ReviewsPanel({ isLoading, reviewError, reviews, session, onSaveReview }
           <Text style={styles.emptyText}>No reviews yet.</Text>
         )}
       </View>
+    </View>
+  );
+}
+
+function CollectionPicker({
+  collections,
+  recipe,
+  onAddRecipeToCollection,
+  onCreateCollection
+}) {
+  const [collectionName, setCollectionName] = useState("");
+  const [status, setStatus] = useState("");
+
+  function handleCreateAndAdd() {
+    const collection = onCreateCollection(collectionName, recipe.id);
+
+    if (!collection) {
+      setStatus("Enter a collection name.");
+      return;
+    }
+
+    setCollectionName("");
+    setStatus(`Added to ${collection.name}.`);
+  }
+
+  function handleQuickCreateAndAdd(name) {
+    const collection = onCreateCollection(name, recipe.id);
+
+    if (!collection) {
+      return;
+    }
+
+    setStatus(`Added to ${collection.name}.`);
+  }
+
+  function handleAdd(collection) {
+    onAddRecipeToCollection(collection.id, recipe.id);
+    setStatus(`Added to ${collection.name}.`);
+  }
+
+  return (
+    <View style={styles.detailCollectionBox}>
+      <Text style={styles.reviewFormTitle}>Add to collection</Text>
+      {status ? <Text style={styles.successText}>{status}</Text> : null}
+      {collections.length ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.collectionChipRow}
+        >
+          {collections.map((collection) => {
+            const alreadyAdded = collection.recipeIds.includes(recipe.id);
+            return (
+              <Pressable
+                key={collection.id}
+                onPress={() => handleAdd(collection)}
+                style={[
+                  styles.collectionChip,
+                  alreadyAdded && styles.collectionChipActive
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.collectionChipText,
+                    alreadyAdded && styles.collectionChipTextActive
+                  ]}
+                >
+                  {alreadyAdded ? "Added" : collection.name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      ) : (
+        <View>
+          <Text style={styles.helperText}>Create your first collection below.</Text>
+          <View style={styles.quickCollectionRow}>
+            {["Quick Dinners", "Healthy Meals", "Desserts"].map((name) => (
+              <Pressable
+                key={name}
+                onPress={() => handleQuickCreateAndAdd(name)}
+                style={styles.collectionChip}
+              >
+                <Text style={styles.collectionChipText}>{name}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      )}
+      <TextInput
+        value={collectionName}
+        onChangeText={setCollectionName}
+        placeholder="New collection name"
+        placeholderTextColor={colors.muted}
+        style={styles.formInput}
+      />
+      <Pressable onPress={handleCreateAndAdd} style={styles.secondaryButton}>
+        <Text style={styles.secondaryButtonText}>Create and add</Text>
+      </Pressable>
     </View>
   );
 }
@@ -1543,8 +1887,10 @@ function ProfileScreen({
   session,
   savedRecipes,
   hasSubscription,
+  collectionsCount,
   shoppingCount,
   onLogout,
+  onOpenCollections,
   onOpenSubscription,
   onOpenShoppingList,
   onSessionChange
@@ -1583,7 +1929,7 @@ function ProfileScreen({
 
       <View style={styles.statsRow}>
         <StatTile value={savedRecipes.length} label="Recipes Saved" />
-        <StatTile value="0" label="Collections" />
+        <StatTile value={collectionsCount} label="Collections" />
         <StatTile value="2.4k" label="Minutes Cooked" />
       </View>
 
@@ -1640,10 +1986,13 @@ function ProfileScreen({
           <Text style={styles.menuText}>Cooking History</Text>
           <Text style={styles.menuArrow}>{">"}</Text>
         </View>
-        <View style={styles.menuRow}>
-          <Text style={styles.menuText}>My Collections</Text>
+        <Pressable onPress={onOpenCollections} style={styles.menuRow}>
+          <View>
+            <Text style={styles.menuText}>My Collections</Text>
+            <Text style={styles.menuSubtext}>{collectionsCount} collections</Text>
+          </View>
           <Text style={styles.menuArrow}>{">"}</Text>
-        </View>
+        </Pressable>
         <Pressable onPress={onOpenShoppingList} style={styles.menuRow}>
           <View>
             <Text style={styles.menuText}>Shopping List</Text>
@@ -2396,6 +2745,63 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "900"
   },
+  collectionCreatePanel: {
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 18,
+    borderWidth: 1,
+    marginBottom: 14,
+    padding: 14,
+    ...shadows.soft
+  },
+  collectionCard: {
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 18,
+    borderWidth: 1,
+    marginBottom: 14,
+    padding: 14,
+    ...shadows.soft
+  },
+  collectionHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 10
+  },
+  collectionTitle: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  collectionMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 4
+  },
+  collectionRecipeRow: {
+    alignItems: "center",
+    borderTopColor: colors.line,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    paddingVertical: 10
+  },
+  collectionRecipeButton: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: 10
+  },
+  collectionRecipeImage: {
+    borderRadius: 12,
+    height: 50,
+    width: 58
+  },
+  collectionRecipeCopy: {
+    flex: 1
+  },
   detailHero: {
     backgroundColor: colors.dark,
     height: 330
@@ -2629,6 +3035,42 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     marginTop: 8
+  },
+  detailCollectionBox: {
+    backgroundColor: colors.cream,
+    borderRadius: 16,
+    marginTop: 16,
+    padding: 12
+  },
+  collectionChipRow: {
+    gap: 8,
+    paddingTop: 12
+  },
+  quickCollectionRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 12
+  },
+  collectionChip: {
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 9
+  },
+  collectionChipActive: {
+    backgroundColor: colors.green,
+    borderColor: colors.green
+  },
+  collectionChipText: {
+    color: colors.ink,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  collectionChipTextActive: {
+    color: "#FFFFFF"
   },
   stickyCta: {
     backgroundColor: colors.cream,

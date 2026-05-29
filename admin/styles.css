@@ -133,6 +133,14 @@ textarea {
   width: auto;
 }
 
+.toggleRow {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
 button {
   border: 0;
   border-radius: 8px;
@@ -243,6 +251,11 @@ button {
   .panelHeader {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .toggleRow {
+    align-items: stretch;
+    justify-content: flex-start;
   }
 
   h1 {

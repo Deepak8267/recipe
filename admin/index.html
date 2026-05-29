@@ -41,17 +41,22 @@
       <section id="recipePanel" class="panel hidden">
         <div class="panelHeader">
           <div>
-            <h2>New recipe</h2>
+            <h2 id="recipeFormTitle">New recipe</h2>
             <p id="sessionText" class="muted"></p>
           </div>
-          <label class="publishToggle">
-            <input id="publishedInput" type="checkbox" checked />
-            Publish
-          </label>
-          <label class="publishToggle">
-            <input id="premiumInput" type="checkbox" checked />
-            Premium
-          </label>
+          <div class="toggleRow">
+            <button id="cancelEditButton" class="secondary hidden" type="button">
+              Cancel edit
+            </button>
+            <label class="publishToggle">
+              <input id="publishedInput" type="checkbox" checked />
+              Publish
+            </label>
+            <label class="publishToggle">
+              <input id="premiumInput" type="checkbox" checked />
+              Premium
+            </label>
+          </div>
         </div>
 
         <div class="grid">

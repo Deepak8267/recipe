@@ -1,6 +1,7 @@
 const config = window.WORLD_RECIPES_ADMIN_CONFIG || {};
 const state = {
   accessToken: "",
+  editingRecipeId: "",
   user: null
 };
 
@@ -15,6 +16,7 @@ const elements = {
   loginButton: document.querySelector("#loginButton"),
   loginStatus: document.querySelector("#loginStatus"),
   sessionText: document.querySelector("#sessionText"),
+  recipeFormTitle: document.querySelector("#recipeFormTitle"),
   titleInput: document.querySelector("#titleInput"),
   countryInput: document.querySelector("#countryInput"),
   categoryInput: document.querySelector("#categoryInput"),
@@ -29,6 +31,7 @@ const elements = {
   stepsInput: document.querySelector("#stepsInput"),
   publishedInput: document.querySelector("#publishedInput"),
   premiumInput: document.querySelector("#premiumInput"),
+  cancelEditButton: document.querySelector("#cancelEditButton"),
   saveButton: document.querySelector("#saveButton"),
   refreshButton: document.querySelector("#refreshButton"),
   recipeList: document.querySelector("#recipeList"),
@@ -46,6 +49,7 @@ if (isConfigured) {
 elements.loginButton.addEventListener("click", handleLogin);
 elements.logoutButton.addEventListener("click", handleLogout);
 elements.saveButton.addEventListener("click", handleSaveRecipe);
+elements.cancelEditButton.addEventListener("click", clearRecipeForm);
 elements.refreshButton.addEventListener("click", loadRecipeList);
 
 async function handleLogin() {
@@ -62,6 +66,7 @@ async function handleLogin() {
     });
 
     state.accessToken = response.access_token;
+    state.editingRecipeId = "";
     state.user = response.user;
     elements.sessionText.textContent = `Logged in as ${state.user.email}`;
     elements.loginPanel.classList.add("hidden");
@@ -78,6 +83,7 @@ async function handleLogin() {
 
 function handleLogout() {
   state.accessToken = "";
+  state.editingRecipeId = "";
   state.user = null;
   elements.passwordInput.value = "";
   elements.recipePanel.classList.add("hidden");
@@ -103,13 +109,24 @@ async function handleSaveRecipe() {
       throw new Error("Add at least one ingredient and one cooking step.");
     }
 
-    setStatus(elements.recipeStatus, "Uploading recipe...", "");
+    setStatus(
+      elements.recipeStatus,
+      state.editingRecipeId ? "Updating recipe..." : "Uploading recipe...",
+      ""
+    );
     const country = await findOrCreateCountry(elements.countryInput.value.trim());
     const category = await findOrCreateCategory(elements.categoryInput.value);
     const imageUrl = await getRecipeImageUrl();
-    const recipe = await createRecipe(country.id, category.id, imageUrl);
-    await createRecipeLines("recipe_ingredients", recipe.id, ingredients);
-    await createRecipeLines("recipe_steps", recipe.id, steps);
+
+    if (state.editingRecipeId) {
+      await updateRecipe(state.editingRecipeId, country.id, category.id, imageUrl);
+      await replaceRecipeLines("recipe_ingredients", state.editingRecipeId, ingredients);
+      await replaceRecipeLines("recipe_steps", state.editingRecipeId, steps);
+    } else {
+      const recipe = await createRecipe(country.id, category.id, imageUrl);
+      await createRecipeLines("recipe_ingredients", recipe.id, ingredients);
+      await createRecipeLines("recipe_steps", recipe.id, steps);
+    }
 
     clearRecipeForm();
     setStatus(elements.recipeStatus, "Recipe saved successfully.", "success");
@@ -179,6 +196,14 @@ function renderRecipeList(recipes) {
             <button
               class="secondary"
               type="button"
+              data-action="edit"
+              data-id="${recipe.id}"
+            >
+              Edit
+            </button>
+            <button
+              class="secondary"
+              type="button"
               data-action="premium"
               data-id="${recipe.id}"
               data-premium="${recipe.is_premium}"
@@ -219,6 +244,12 @@ async function handleRecipeAction(button) {
   button.disabled = true;
 
   try {
+    if (action === "edit") {
+      await loadRecipeForEdit(recipeId);
+      button.disabled = false;
+      return;
+    }
+
     if (action === "toggle") {
       const nextPublished = button.dataset.published !== "true";
       await updateRecipePublishStatus(recipeId, nextPublished);
@@ -262,6 +293,63 @@ async function updateRecipePremiumStatus(recipeId, isPremium) {
     authed: true,
     body: {
       is_premium: isPremium
+    }
+  });
+}
+
+async function loadRecipeForEdit(recipeId) {
+  const select = [
+    "id",
+    "title",
+    "region",
+    "difficulty",
+    "time_minutes",
+    "servings",
+    "image_url",
+    "tags",
+    "is_published",
+    "is_premium",
+    "countries(name)",
+    "categories(name)",
+    "recipe_ingredients(position,body,name,quantity,unit,image_url)",
+    "recipe_steps(position,body)"
+  ].join(",");
+
+  const recipes = await request(
+    `/rest/v1/recipes?select=${encodeURIComponent(select)}&id=eq.${encodeURIComponent(
+      recipeId
+    )}`,
+    {
+      authed: true
+    }
+  );
+
+  if (!recipes.length) {
+    throw new Error("Recipe not found.");
+  }
+
+  populateRecipeForm(recipes[0]);
+  elements.recipePanel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function updateRecipe(recipeId, countryId, categoryId, imageUrl) {
+  const tags = getTags();
+
+  await request(`/rest/v1/recipes?id=eq.${encodeURIComponent(recipeId)}`, {
+    method: "PATCH",
+    authed: true,
+    body: {
+      category_id: categoryId,
+      country_id: countryId,
+      difficulty: elements.difficultyInput.value,
+      image_url: imageUrl,
+      is_premium: elements.premiumInput.checked,
+      is_published: elements.publishedInput.checked,
+      region: elements.regionInput.value.trim(),
+      servings: Number(elements.servingsInput.value),
+      tags,
+      time_minutes: Number(elements.timeInput.value),
+      title: elements.titleInput.value.trim()
     }
   });
 }
@@ -356,10 +444,7 @@ async function getRecipeImageUrl() {
 }
 
 async function createRecipe(countryId, categoryId, imageUrl) {
-  const tags = elements.tagsInput.value
-    .split(",")
-    .map((tag) => tag.trim())
-    .filter(Boolean);
+  const tags = getTags();
 
   const created = await request("/rest/v1/recipes", {
     method: "POST",
@@ -381,6 +466,18 @@ async function createRecipe(countryId, categoryId, imageUrl) {
   });
 
   return created[0];
+}
+
+async function replaceRecipeLines(tableName, recipeId, lines) {
+  await request(
+    `/rest/v1/${tableName}?recipe_id=eq.${encodeURIComponent(recipeId)}`,
+    {
+      method: "DELETE",
+      authed: true
+    }
+  );
+
+  await createRecipeLines(tableName, recipeId, lines);
 }
 
 async function createRecipeLines(tableName, recipeId, lines) {
@@ -469,6 +566,60 @@ function getIngredientLines(value) {
   });
 }
 
+function getTags() {
+  return elements.tagsInput.value
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
+function populateRecipeForm(recipe) {
+  state.editingRecipeId = recipe.id;
+  elements.recipeFormTitle.textContent = "Edit recipe";
+  elements.cancelEditButton.classList.remove("hidden");
+  elements.saveButton.textContent = "Update recipe";
+  elements.titleInput.value = recipe.title || "";
+  elements.countryInput.value = recipe.countries?.name || "";
+  elements.categoryInput.value = recipe.categories?.name || "Dinner";
+  elements.regionInput.value = recipe.region || "";
+  elements.difficultyInput.value = recipe.difficulty || "Medium";
+  elements.timeInput.value = recipe.time_minutes || "30";
+  elements.servingsInput.value = recipe.servings || "2";
+  elements.imageFileInput.value = "";
+  elements.imageInput.value = recipe.image_url || "";
+  elements.tagsInput.value = (recipe.tags || []).join(", ");
+  elements.ingredientsInput.value = formatIngredientLines(recipe.recipe_ingredients);
+  elements.stepsInput.value = formatStepLines(recipe.recipe_steps);
+  elements.publishedInput.checked = Boolean(recipe.is_published);
+  elements.premiumInput.checked = Boolean(recipe.is_premium);
+  setStatus(elements.recipeStatus, "Editing existing recipe.", "");
+}
+
+function formatIngredientLines(ingredients = []) {
+  return [...ingredients]
+    .sort((first, second) => first.position - second.position)
+    .map((ingredient) => {
+      if (ingredient.name || ingredient.quantity || ingredient.unit || ingredient.image_url) {
+        return [
+          ingredient.name || ingredient.body,
+          ingredient.quantity || "",
+          ingredient.unit || "",
+          ingredient.image_url || ""
+        ].join(" | ");
+      }
+
+      return ingredient.body;
+    })
+    .join("\n");
+}
+
+function formatStepLines(steps = []) {
+  return [...steps]
+    .sort((first, second) => first.position - second.position)
+    .map((step) => step.body)
+    .join("\n");
+}
+
 function slugify(value) {
   return value
     .toLowerCase()
@@ -495,6 +646,10 @@ function setStatus(element, message, type = "") {
 }
 
 function clearRecipeForm() {
+  state.editingRecipeId = "";
+  elements.recipeFormTitle.textContent = "New recipe";
+  elements.cancelEditButton.classList.add("hidden");
+  elements.saveButton.textContent = "Save recipe";
   elements.titleInput.value = "";
   elements.countryInput.value = "";
   elements.categoryInput.value = "Dinner";

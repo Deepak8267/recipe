@@ -1404,24 +1404,43 @@ function CollectionCard({
 
 function ShoppingListScreen({ items, onClearChecked, onDeleteItem, onToggleItem }) {
   const checkedCount = items.filter((item) => item.checked).length;
+  const remainingCount = items.length - checkedCount;
 
   return (
     <ScrollView style={styles.lightScreen} showsVerticalScrollIndicator={false}>
-      <View style={styles.lightHeader}>
+      <View style={styles.shoppingHero}>
         <View>
+          <Text style={styles.exploreEyebrow}>Market prep</Text>
           <Text style={styles.lightTitle}>Shopping List</Text>
-          <Text style={styles.listSubtitle}>
-            {items.length} items - {checkedCount} checked
+          <Text style={styles.exploreSubtitle}>
+            Ingredients collected from recipes on this device.
           </Text>
         </View>
-        <Pressable onPress={onClearChecked} style={styles.clearListButton}>
-          <Text style={styles.clearListText}>Clear checked</Text>
-        </Pressable>
+        <View style={styles.savedHeroStats}>
+          <Text style={styles.savedHeroNumber}>{remainingCount}</Text>
+          <Text style={styles.savedHeroLabel}>left</Text>
+        </View>
       </View>
+      <View style={styles.favoriteSummaryRow}>
+        <MiniSummary value={items.length} label="Items" />
+        <MiniSummary value={checkedCount} label="Checked" />
+        <MiniSummary value={remainingCount} label="Remaining" />
+      </View>
+      {checkedCount ? (
+        <Pressable onPress={onClearChecked} style={styles.clearListWideButton}>
+          <Text style={styles.clearListText}>Clear checked items</Text>
+        </Pressable>
+      ) : null}
 
       {items.length ? (
         items.map((item) => (
-          <View key={item.id} style={styles.shoppingItemRow}>
+          <View
+            key={item.id}
+            style={[
+              styles.shoppingItemRow,
+              item.checked && styles.shoppingItemRowChecked
+            ]}
+          >
             <Pressable
               onPress={() => onToggleItem(item.id)}
               style={[styles.shoppingCheck, item.checked && styles.shoppingCheckActive]}
@@ -2003,14 +2022,46 @@ function ReviewRow({ review }) {
 
 function CookingModeScreen({ recipe, onBack }) {
   const [stepIndex, setStepIndex] = useState(0);
+  const [timerSeconds, setTimerSeconds] = useState(8 * 60);
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
   const steps = recipe.steps.length ? recipe.steps : ["Follow the recipe details."];
   const currentStep = steps[stepIndex];
   const progress = ((stepIndex + 1) / steps.length) * 100;
+  const timerMinutes = Math.floor(timerSeconds / 60);
+  const timerRemainder = timerSeconds % 60;
+  const timerText = `${String(timerMinutes).padStart(2, "0")}:${String(
+    timerRemainder
+  ).padStart(2, "0")}`;
+
+  useEffect(() => {
+    if (!isTimerRunning || timerSeconds <= 0) {
+      return undefined;
+    }
+
+    const intervalId = setInterval(() => {
+      setTimerSeconds((value) => Math.max(0, value - 1));
+    }, 1000);
+
+    return () => clearInterval(intervalId);
+  }, [isTimerRunning, timerSeconds]);
+
+  useEffect(() => {
+    setTimerSeconds(8 * 60);
+    setIsTimerRunning(false);
+  }, [stepIndex]);
+
+  function goPrevious() {
+    setStepIndex((value) => Math.max(0, value - 1));
+  }
+
+  function goNext() {
+    setStepIndex((value) => Math.min(steps.length - 1, value + 1));
+  }
 
   return (
     <SafeAreaView style={styles.lightSafeArea}>
       <StatusBar style="dark" />
-      <View style={styles.cookingScreen}>
+      <ScrollView style={styles.cookingScreen} showsVerticalScrollIndicator={false}>
         <View style={styles.lightHeader}>
           <Pressable onPress={onBack}>
             <Text style={styles.lightIcon}>Back</Text>
@@ -2022,31 +2073,64 @@ function CookingModeScreen({ recipe, onBack }) {
         <View style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${progress}%` }]} />
         </View>
-        <Text style={styles.cookingTitle}>{recipe.title}</Text>
-        <Text style={styles.cookingInstruction}>{currentStep}</Text>
-        <Image source={{ uri: recipe.image }} style={styles.cookingImage} />
-        <View style={styles.timerCircle}>
-          <Text style={styles.timerText}>08:00</Text>
-          <Text style={styles.timerLabel}>Cooking timer</Text>
+        <View style={styles.cookingHeroCard}>
+          <Image source={{ uri: recipe.image }} style={styles.cookingImage} />
+          <View style={styles.cookingHeroOverlay}>
+            <Text style={styles.cookingRecipeLabel}>{recipe.country}</Text>
+            <Text style={styles.cookingTitle}>{recipe.title}</Text>
+          </View>
+        </View>
+        <View style={styles.cookingInstructionCard}>
+          <Text style={styles.stepLabel}>Current instruction</Text>
+          <Text style={styles.cookingInstruction}>{currentStep}</Text>
+        </View>
+        <View style={styles.timerPanel}>
+          <View style={styles.timerCircle}>
+            <Text style={styles.timerText}>{timerText}</Text>
+            <Text style={styles.timerLabel}>Step timer</Text>
+          </View>
+          <View style={styles.timerActions}>
+            <Pressable
+              onPress={() => setIsTimerRunning((value) => !value)}
+              style={styles.primaryButtonSmall}
+            >
+              <Text style={styles.primaryButtonText}>
+                {isTimerRunning ? "Pause" : "Start"}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setTimerSeconds(8 * 60);
+                setIsTimerRunning(false);
+              }}
+              style={styles.secondaryButton}
+            >
+              <Text style={styles.secondaryButtonText}>Reset</Text>
+            </Pressable>
+          </View>
         </View>
         <View style={styles.cookingControls}>
           <Pressable
             disabled={stepIndex === 0}
-            onPress={() => setStepIndex((value) => Math.max(0, value - 1))}
+            onPress={goPrevious}
             style={[styles.secondaryButton, stepIndex === 0 && styles.disabledButton]}
           >
             <Text style={styles.secondaryButtonText}>Previous</Text>
           </Pressable>
           <Pressable
-            onPress={() =>
-              setStepIndex((value) => Math.min(steps.length - 1, value + 1))
-            }
-            style={styles.primaryButtonSmall}
+            onPress={stepIndex === steps.length - 1 ? onBack : goNext}
+            style={[
+              styles.primaryButtonSmall,
+              stepIndex === steps.length - 1 && styles.greenButton
+            ]}
           >
-            <Text style={styles.primaryButtonText}>Next</Text>
+            <Text style={styles.primaryButtonText}>
+              {stepIndex === steps.length - 1 ? "Finish" : "Next"}
+            </Text>
           </Pressable>
         </View>
-      </View>
+        <View style={styles.bottomSpacer} />
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -3885,35 +3969,73 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent,
     height: 6
   },
+  cookingHeroCard: {
+    borderRadius: 24,
+    marginTop: 20,
+    overflow: "hidden",
+    ...shadows.soft
+  },
+  cookingHeroOverlay: {
+    backgroundColor: "rgba(25, 17, 12, 0.55)",
+    bottom: 0,
+    left: 0,
+    padding: 18,
+    position: "absolute",
+    right: 0
+  },
+  cookingRecipeLabel: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase"
+  },
   cookingTitle: {
-    color: colors.ink,
+    color: "#FFFFFF",
     fontSize: 26,
     fontWeight: "900",
     lineHeight: 32,
-    marginTop: 28
+    marginTop: 5
+  },
+  cookingInstructionCard: {
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginTop: 16,
+    padding: 16,
+    ...shadows.soft
   },
   cookingInstruction: {
     color: colors.ink,
     fontSize: 18,
     lineHeight: 28,
-    marginTop: 18
+    marginTop: 8
   },
   cookingImage: {
-    borderRadius: 22,
     height: 260,
-    marginTop: 24,
     width: "100%"
+  },
+  timerPanel: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 22,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 16,
+    justifyContent: "space-between",
+    marginTop: 16,
+    padding: 16,
+    ...shadows.soft
   },
   timerCircle: {
     alignItems: "center",
-    alignSelf: "center",
     backgroundColor: colors.card,
     borderColor: colors.accent,
     borderRadius: 42,
     borderWidth: 3,
     height: 84,
     justifyContent: "center",
-    marginTop: -32,
     width: 84
   },
   timerText: {
@@ -3926,6 +4048,10 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700",
     marginTop: 2
+  },
+  timerActions: {
+    flex: 1,
+    gap: 8
   },
   cookingControls: {
     alignItems: "center",
@@ -4357,11 +4483,30 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginTop: 4
   },
+  shoppingHero: {
+    alignItems: "flex-start",
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 22,
+    borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 12,
+    padding: 16,
+    ...shadows.soft
+  },
   clearListButton: {
     backgroundColor: colors.accentSoft,
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 10
+  },
+  clearListWideButton: {
+    alignItems: "center",
+    backgroundColor: colors.accentSoft,
+    borderRadius: 16,
+    marginBottom: 12,
+    paddingVertical: 13
   },
   clearListText: {
     color: colors.accent,
@@ -4379,6 +4524,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     padding: 12,
     ...shadows.soft
+  },
+  shoppingItemRowChecked: {
+    opacity: 0.72
   },
   shoppingCheck: {
     alignItems: "center",

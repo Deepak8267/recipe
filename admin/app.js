@@ -27,6 +27,8 @@ const elements = {
   servingsInput: document.querySelector("#servingsInput"),
   imageFileInput: document.querySelector("#imageFileInput"),
   imageInput: document.querySelector("#imageInput"),
+  imagePreview: document.querySelector("#imagePreview"),
+  imagePreviewImg: document.querySelector("#imagePreviewImg"),
   tagsInput: document.querySelector("#tagsInput"),
   ingredientsInput: document.querySelector("#ingredientsInput"),
   stepsInput: document.querySelector("#stepsInput"),
@@ -55,6 +57,8 @@ elements.saveButton.addEventListener("click", handleSaveRecipe);
 elements.cancelEditButton.addEventListener("click", clearRecipeForm);
 elements.refreshButton.addEventListener("click", loadRecipeList);
 elements.refreshReviewsButton.addEventListener("click", loadReviewList);
+elements.imageInput.addEventListener("input", updateImagePreview);
+elements.imageFileInput.addEventListener("change", updateImagePreview);
 
 async function handleLogin() {
   setStatus(elements.loginStatus, "");
@@ -108,14 +112,7 @@ async function handleSaveRecipe() {
   try {
     const ingredients = getIngredientLines(elements.ingredientsInput.value);
     const steps = getLines(elements.stepsInput.value);
-
-    if (!elements.titleInput.value.trim() || !elements.countryInput.value.trim()) {
-      throw new Error("Recipe title and country are required.");
-    }
-
-    if (!ingredients.length || !steps.length) {
-      throw new Error("Add at least one ingredient and one cooking step.");
-    }
+    validateRecipeForm(ingredients, steps);
 
     setStatus(
       elements.recipeStatus,
@@ -157,6 +154,7 @@ async function loadRecipeList() {
       "is_premium",
       "time_minutes",
       "servings",
+      "image_url",
       "created_at",
       "countries(name)",
       "categories(name)"
@@ -276,19 +274,27 @@ function renderRecipeList(recipes) {
     .map(
       (recipe) => `
         <article class="recipeRow">
-          <div>
-            <h3>${escapeHtml(recipe.title)}</h3>
+          <img class="recipeThumb" src="${escapeHtml(
+            recipe.image_url || ""
+          )}" alt="${escapeHtml(recipe.title)}" />
+          <div class="recipeInfo">
+            <div class="recipeTitleRow">
+              <h3>${escapeHtml(recipe.title)}</h3>
+              <span class="${recipe.is_premium ? "badge premium" : "badge free"}">
+                ${recipe.is_premium ? "Premium" : "Free"}
+              </span>
+            </div>
             <p>${escapeHtml(recipe.countries?.name || "Unknown")} - ${escapeHtml(
         recipe.categories?.name || "Uncategorized"
       )} - ${
         recipe.time_minutes
       } min - Serves ${recipe.servings}</p>
-            <span class="${recipe.is_published ? "badge published" : "badge draft"}">
-              ${recipe.is_published ? "Published" : "Draft"}
-            </span>
-            <span class="${recipe.is_premium ? "badge premium" : "badge free"}">
-              ${recipe.is_premium ? "Premium" : "Free"}
-            </span>
+            <div class="badgeRow">
+              <span class="${recipe.is_published ? "badge published" : "badge draft"}">
+                ${recipe.is_published ? "Published" : "Draft"}
+              </span>
+              <span class="badge neutral">${formatDate(recipe.created_at)}</span>
+            </div>
           </div>
           <div class="recipeActions">
             <button
@@ -697,6 +703,7 @@ function populateRecipeForm(recipe) {
   elements.stepsInput.value = formatStepLines(recipe.recipe_steps);
   elements.publishedInput.checked = Boolean(recipe.is_published);
   elements.premiumInput.checked = Boolean(recipe.is_premium);
+  updateImagePreview();
   setStatus(elements.recipeStatus, "Editing existing recipe.", "");
 }
 
@@ -766,6 +773,57 @@ function setStatus(element, message, type = "") {
   }
 }
 
+function validateRecipeForm(ingredients, steps) {
+  const title = elements.titleInput.value.trim();
+  const country = elements.countryInput.value.trim();
+  const imageFile = elements.imageFileInput.files[0];
+  const imageUrl = elements.imageInput.value.trim();
+  const time = Number(elements.timeInput.value);
+  const servings = Number(elements.servingsInput.value);
+
+  if (!title) {
+    throw new Error("Recipe title is required.");
+  }
+
+  if (!country) {
+    throw new Error("Country is required.");
+  }
+
+  if (!Number.isFinite(time) || time < 1) {
+    throw new Error("Cooking time must be at least 1 minute.");
+  }
+
+  if (!Number.isFinite(servings) || servings < 1) {
+    throw new Error("Servings must be at least 1.");
+  }
+
+  if (!imageFile && !imageUrl) {
+    throw new Error("Add an image file or image URL.");
+  }
+
+  if (!ingredients.length) {
+    throw new Error("Add at least one ingredient.");
+  }
+
+  if (!steps.length) {
+    throw new Error("Add at least one cooking step.");
+  }
+}
+
+function updateImagePreview() {
+  const imageFile = elements.imageFileInput.files[0];
+  const imageUrl = imageFile ? URL.createObjectURL(imageFile) : elements.imageInput.value.trim();
+
+  if (!imageUrl) {
+    elements.imagePreview.classList.add("hidden");
+    elements.imagePreviewImg.removeAttribute("src");
+    return;
+  }
+
+  elements.imagePreviewImg.src = imageUrl;
+  elements.imagePreview.classList.remove("hidden");
+}
+
 function clearRecipeForm() {
   state.editingRecipeId = "";
   elements.recipeFormTitle.textContent = "New recipe";
@@ -784,4 +842,5 @@ function clearRecipeForm() {
   elements.stepsInput.value = "";
   elements.publishedInput.checked = true;
   elements.premiumInput.checked = true;
+  updateImagePreview();
 }

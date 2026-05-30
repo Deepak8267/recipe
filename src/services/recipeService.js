@@ -93,12 +93,21 @@ function mapRecipeFromSupabase(recipe) {
     timeMinutes: recipe.time_minutes,
     difficulty: recipe.difficulty,
     servings: recipe.servings,
-    image: recipe.image_url || fallbackRecipeImage,
+    image: normalizeImageUrl(recipe.image_url),
     isPremium: Boolean(recipe.is_premium),
     tags: recipe.tags ?? [],
     ingredients: sortIngredients(recipe.recipe_ingredients),
     steps: sortByPosition(recipe.recipe_steps)
   };
+}
+
+function normalizeImageUrl(value) {
+  if (!value || typeof value !== "string") {
+    return fallbackRecipeImage;
+  }
+
+  const cleanValue = value.trim();
+  return cleanValue || fallbackRecipeImage;
 }
 
 function inferCategory(tags = []) {
@@ -107,14 +116,14 @@ function inferCategory(tags = []) {
 }
 
 function sortIngredients(items = []) {
-  return [...items].sort((first, second) => first.position - second.position).map((item) => {
+  return [...(items ?? [])].sort((first, second) => first.position - second.position).map((item) => {
     if (!item.name && !item.quantity && !item.unit && !item.image_url) {
       return item.body;
     }
 
     return {
       body: item.body,
-      image: item.image_url,
+      image: normalizeImageUrl(item.image_url),
       name: item.name || item.body,
       quantity: item.quantity || "",
       unit: item.unit || ""
@@ -123,7 +132,7 @@ function sortIngredients(items = []) {
 }
 
 function sortByPosition(items = []) {
-  return [...items]
+  return [...(items ?? [])]
     .sort((first, second) => first.position - second.position)
     .map((item) => item.body);
 }

@@ -200,8 +200,28 @@ button {
   border-radius: 8px;
   display: grid;
   gap: 14px;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 96px 1fr auto;
   padding: 14px;
+}
+
+.recipeThumb {
+  background: #fff8f0;
+  border: 1px solid #ead8c8;
+  border-radius: 8px;
+  height: 78px;
+  object-fit: cover;
+  width: 96px;
+}
+
+.recipeInfo {
+  min-width: 0;
+}
+
+.recipeTitleRow {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .recipeRow h3 {
@@ -229,6 +249,12 @@ button {
 .recipeActions {
   display: flex;
   gap: 10px;
+}
+
+.badgeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
 }
 
 .badge {
@@ -259,6 +285,39 @@ button {
   color: #277142;
 }
 
+.neutral {
+  background: #fff8f0;
+  color: #6f6258;
+}
+
+.imagePreview {
+  align-items: center;
+  background: #fff8f0;
+  border: 1px solid #ead8c8;
+  border-radius: 8px;
+  display: flex;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 12px;
+}
+
+.imagePreview img {
+  border-radius: 8px;
+  height: 86px;
+  object-fit: cover;
+  width: 116px;
+}
+
+.imagePreview strong {
+  color: #251a13;
+  display: block;
+  font-size: 15px;
+}
+
+.imagePreview.hidden {
+  display: none;
+}
+
 @media (max-width: 720px) {
   .topbar,
   .panelHeader {
@@ -281,6 +340,11 @@ button {
 
   .recipeRow {
     grid-template-columns: 1fr;
+  }
+
+  .recipeThumb {
+    height: 180px;
+    width: 100%;
   }
 
   .recipeActions {

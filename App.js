@@ -32,6 +32,7 @@ const onboardingFallbackImage =
 const onboardingStorageKey = "world-recipes-onboarding-complete";
 const shoppingListStorageKey = "world-recipes-shopping-list";
 const collectionsStorageKey = "world-recipes-collections";
+const subscriptionStorageKey = "world-recipes-subscription-preview";
 
 export default function App() {
   const [recipes, setRecipes] = useState([]);
@@ -57,6 +58,7 @@ export default function App() {
     loadEntryStep();
     loadShoppingList();
     loadCollections();
+    loadSubscriptionPreview();
   }, []);
 
   useEffect(() => {
@@ -145,6 +147,28 @@ export default function App() {
       setCollections(storedCollections ? JSON.parse(storedCollections) : []);
     } catch {
       setCollections([]);
+    }
+  }
+
+  async function loadSubscriptionPreview() {
+    try {
+      const storedValue = await AsyncStorage.getItem(subscriptionStorageKey);
+      setHasSubscription(storedValue === "active");
+    } catch {
+      setHasSubscription(false);
+    }
+  }
+
+  async function saveSubscriptionPreview(isActive) {
+    setHasSubscription(isActive);
+
+    try {
+      await AsyncStorage.setItem(
+        subscriptionStorageKey,
+        isActive ? "active" : "inactive"
+      );
+    } catch {
+      // Premium preview still works in memory if storage is unavailable.
     }
   }
 
@@ -491,7 +515,7 @@ export default function App() {
       <SubscriptionScreen
         hasSubscription={hasSubscription}
         onBack={() => setCurrentView("home")}
-        onPreviewChange={setHasSubscription}
+        onPreviewChange={saveSubscriptionPreview}
       />
     );
   }
@@ -2413,6 +2437,46 @@ function ProfileScreen({
 }
 
 function SubscriptionScreen({ hasSubscription, onBack, onPreviewChange }) {
+  const [selectedPlan, setSelectedPlan] = useState("yearly");
+  const [status, setStatus] = useState("");
+  const plans = [
+    {
+      id: "monthly",
+      label: "Monthly",
+      price: "Rs. 99",
+      period: "/ month",
+      note: "Flexible plan for trying premium recipes."
+    },
+    {
+      id: "yearly",
+      label: "Yearly",
+      price: "Rs. 799",
+      period: "/ year",
+      note: "Best value for regular cooking.",
+      badge: "Save 33%"
+    }
+  ];
+  const activePlan = plans.find((plan) => plan.id === selectedPlan) || plans[0];
+
+  function handlePurchasePreview() {
+    onPreviewChange(true);
+    setStatus(`${activePlan.label} premium preview unlocked on this device.`);
+  }
+
+  function handleRestorePreview() {
+    if (hasSubscription) {
+      setStatus("Premium preview is already active on this device.");
+      return;
+    }
+
+    setStatus("No test purchase found yet. Use unlock preview while RevenueCat is pending.");
+  }
+
+  function handleCancelPreview() {
+    onPreviewChange(false);
+    setStatus("Premium preview turned off for testing.");
+  }
+
   return (
     <SafeAreaView style={styles.darkSafeArea}>
       <StatusBar style="light" />
@@ -2429,23 +2493,83 @@ function SubscriptionScreen({ hasSubscription, onBack, onPreviewChange }) {
             recipe library and new premium dishes.
           </Text>
           <View style={styles.paywallDivider} />
-          <View style={styles.paywallPriceRow}>
-            <Text style={styles.paywallPrice}>Rs. 99</Text>
-            <Text style={styles.paywallPeriod}>/ month</Text>
+          <View style={styles.paywallPlanGrid}>
+            {plans.map((plan) => {
+              const selected = selectedPlan === plan.id;
+              return (
+                <Pressable
+                  key={plan.id}
+                  onPress={() => setSelectedPlan(plan.id)}
+                  style={[
+                    styles.paywallPlanCard,
+                    selected && styles.paywallPlanCardActive
+                  ]}
+                >
+                  <View style={styles.paywallPlanHeader}>
+                    <Text
+                      style={[
+                        styles.paywallPlanLabel,
+                        selected && styles.paywallPlanLabelActive
+                      ]}
+                    >
+                      {plan.label}
+                    </Text>
+                    {plan.badge ? (
+                      <Text style={styles.paywallPlanBadge}>{plan.badge}</Text>
+                    ) : null}
+                  </View>
+                  <View style={styles.paywallPriceRow}>
+                    <Text
+                      style={[
+                        styles.paywallPrice,
+                        selected && styles.paywallPriceActive
+                      ]}
+                    >
+                      {plan.price}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.paywallPeriod,
+                        selected && styles.paywallPeriodActive
+                      ]}
+                    >
+                      {plan.period}
+                    </Text>
+                  </View>
+                  <Text
+                    style={[
+                      styles.paywallPlanNote,
+                      selected && styles.paywallPlanNoteActive
+                    ]}
+                  >
+                    {plan.note}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
           <Benefit text="Unlimited premium recipe access" />
           <Benefit text="Recipes from every published country" />
           <Benefit text="New premium dishes as you add them from admin" />
           <Pressable
             style={[styles.primaryButton, hasSubscription && styles.greenButton]}
-            onPress={() => onPreviewChange(!hasSubscription)}
+            onPress={handlePurchasePreview}
           >
             <Text style={styles.primaryButtonText}>
-              {hasSubscription ? "Premium preview active" : "Preview unlock for testing"}
+              {hasSubscription ? "Premium preview active" : `Unlock ${activePlan.label}`}
             </Text>
           </Pressable>
+          <Pressable onPress={handleRestorePreview} style={styles.paywallTextButton}>
+            <Text style={styles.paywallTextButtonText}>Restore purchase</Text>
+          </Pressable>
+          {hasSubscription ? (
+            <Pressable onPress={handleCancelPreview} style={styles.paywallTextButton}>
+              <Text style={styles.paywallDangerText}>Turn off preview</Text>
+            </Pressable>
+          ) : null}
+          {status ? <Text style={styles.paywallStatus}>{status}</Text> : null}
           <Text style={styles.paywallFootnote}>
-            Payment will connect to RevenueCat before app store launch.
+            RevenueCat will replace preview unlock before App Store and Play Store launch.
           </Text>
         </View>
       </ScrollView>
@@ -4369,15 +4493,56 @@ const styles = StyleSheet.create({
     height: 1,
     marginVertical: 18
   },
+  paywallPlanGrid: {
+    gap: 12,
+    marginBottom: 18
+  },
+  paywallPlanCard: {
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    borderColor: "rgba(255, 255, 255, 0.12)",
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 14
+  },
+  paywallPlanCardActive: {
+    backgroundColor: "#FFFFFF",
+    borderColor: colors.accent
+  },
+  paywallPlanHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  paywallPlanLabel: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  paywallPlanLabelActive: {
+    color: colors.ink
+  },
+  paywallPlanBadge: {
+    backgroundColor: colors.accent,
+    borderRadius: 12,
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: 9,
+    paddingVertical: 5
+  },
   paywallPriceRow: {
     alignItems: "flex-end",
     flexDirection: "row",
-    marginBottom: 18
+    marginTop: 10
   },
   paywallPrice: {
     color: "#FFFFFF",
     fontSize: 34,
     fontWeight: "900"
+  },
+  paywallPriceActive: {
+    color: colors.ink
   },
   paywallPeriod: {
     color: "#E5D8CE",
@@ -4385,6 +4550,19 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginBottom: 6,
     marginLeft: 6
+  },
+  paywallPeriodActive: {
+    color: colors.muted
+  },
+  paywallPlanNote: {
+    color: "#E5D8CE",
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 19,
+    marginTop: 8
+  },
+  paywallPlanNoteActive: {
+    color: colors.muted
   },
   benefitRow: {
     alignItems: "center",
@@ -4411,6 +4589,28 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 18,
     marginTop: 12,
+    textAlign: "center"
+  },
+  paywallTextButton: {
+    alignItems: "center",
+    paddingVertical: 12
+  },
+  paywallTextButtonText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  paywallDangerText: {
+    color: "#FFB89C",
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  paywallStatus: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 19,
+    marginTop: 4,
     textAlign: "center"
   },
   panel: {

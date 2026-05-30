@@ -30,7 +30,8 @@ export async function signUp({ email, password, fullName }) {
     })
   });
 
-  const data = await response.json();
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : {};
 
   if (!response.ok) {
     throw new Error(data.msg || data.error_description || "Signup failed.");
@@ -65,7 +66,8 @@ export async function signIn({ email, password }) {
     })
   });
 
-  const data = await response.json();
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : {};
 
   if (!response.ok) {
     throw new Error(data.msg || data.error_description || "Login failed.");
@@ -74,6 +76,61 @@ export async function signIn({ email, password }) {
   const session = mapSession(data);
   await syncProfileRow(session);
   return session;
+}
+
+export async function refreshSession(session) {
+  if (!session?.refreshToken) {
+    throw new Error("No saved login session.");
+  }
+
+  if (!isSupabaseConfigured || session?.source === "local") {
+    return session;
+  }
+
+  const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+    method: "POST",
+    headers: getSupabaseHeaders(),
+    body: JSON.stringify({
+      refresh_token: session.refreshToken
+    })
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.msg || data.error_description || "Session refresh failed.");
+  }
+
+  const nextSession = mapSession(data);
+  await syncProfileRow(nextSession);
+  return nextSession;
+}
+
+export async function sendPasswordReset(email) {
+  const cleanEmail = email.trim().toLowerCase();
+
+  if (!cleanEmail) {
+    throw new Error("Enter your email address first.");
+  }
+
+  if (!isSupabaseConfigured) {
+    return;
+  }
+
+  const response = await fetch(`${supabaseUrl}/auth/v1/recover`, {
+    method: "POST",
+    headers: getSupabaseHeaders(),
+    body: JSON.stringify({
+      email: cleanEmail
+    })
+  });
+
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : {};
+
+  if (!response.ok) {
+    throw new Error(data.msg || data.error_description || "Password reset failed.");
+  }
 }
 
 export async function updateProfile({ avatarUrl, session, fullName }) {
@@ -208,6 +265,8 @@ export async function uploadAvatar({ asset, session }) {
 function createLocalSession(email, fullName) {
   return {
     accessToken: "local-demo-session",
+    expiresAt: null,
+    refreshToken: "",
     source: "local",
     user: {
       id: "local-demo-user",
@@ -226,6 +285,8 @@ function mapSession(data) {
 
   return {
     accessToken: data.access_token,
+    expiresAt: data.expires_at || Math.floor(Date.now() / 1000) + (data.expires_in || 3600),
+    refreshToken: data.refresh_token || "",
     source: "supabase",
     user: mapUser(data.user)
   };

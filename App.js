@@ -18,6 +18,8 @@ import {
   View
 } from "react-native";
 import {
+  refreshSession,
+  sendPasswordReset,
   signIn,
   signUp,
   updateProfile,
@@ -40,6 +42,7 @@ const onboardingStorageKey = "world-recipes-onboarding-complete";
 const shoppingListStorageKey = "world-recipes-shopping-list";
 const collectionsStorageKey = "world-recipes-collections";
 const subscriptionStorageKey = "world-recipes-subscription-preview";
+const authSessionStorageKey = "world-recipes-auth-session";
 
 export default function App() {
   const [recipes, setRecipes] = useState([]);
@@ -65,6 +68,7 @@ export default function App() {
     loadEntryStep();
     loadShoppingList();
     loadCollections();
+    restoreSavedSession();
   }, []);
 
   useEffect(() => {
@@ -165,13 +169,48 @@ export default function App() {
     }
   }
 
+  async function restoreSavedSession() {
+    try {
+      const storedSession = await AsyncStorage.getItem(authSessionStorageKey);
+
+      if (!storedSession) {
+        return;
+      }
+
+      const parsedSession = JSON.parse(storedSession);
+      const nextSession = parsedSession.refreshToken
+        ? await refreshSession(parsedSession)
+        : parsedSession;
+      await handleSessionChange(nextSession);
+    } catch {
+      await AsyncStorage.removeItem(authSessionStorageKey);
+      setSession(null);
+      setHasSubscription(false);
+    }
+  }
+
+  async function handleSessionChange(nextSession) {
+    setSession(nextSession);
+    setHasSubscription(Boolean(nextSession?.user?.hasSubscriptionPreview));
+
+    try {
+      if (nextSession) {
+        await AsyncStorage.setItem(authSessionStorageKey, JSON.stringify(nextSession));
+      } else {
+        await AsyncStorage.removeItem(authSessionStorageKey);
+      }
+    } catch {
+      // The app can still use the session in memory if device storage fails.
+    }
+  }
+
   async function saveSubscriptionPreview(isActive) {
     if (!session) {
       throw new Error("Login first to unlock premium.");
     }
 
     const updatedSession = await updateSubscriptionPreview({ isActive, session });
-    setSession(updatedSession);
+    await handleSessionChange(updatedSession);
     setHasSubscription(Boolean(updatedSession.user.hasSubscriptionPreview));
 
     try {
@@ -295,8 +334,8 @@ export default function App() {
     setActiveRecipe(recipe);
   }
 
-  function handleLogout() {
-    setSession(null);
+  async function handleLogout() {
+    await handleSessionChange(null);
     setHasSubscription(false);
     setFavoriteIds([]);
     setCurrentView("home");
@@ -618,13 +657,13 @@ export default function App() {
               onLogout={handleLogout}
               onOpenCollections={openCollections}
               onOpenShoppingList={() => setCurrentView("shopping")}
-              onSessionChange={setSession}
+              onSessionChange={handleSessionChange}
             />
           ) : (
             <AuthScreen
               shoppingCount={shoppingItems.length}
               onOpenShoppingList={() => setCurrentView("shopping")}
-              onSessionChange={setSession}
+              onSessionChange={handleSessionChange}
             />
           )}
         </ScrollView>
@@ -2206,7 +2245,21 @@ function AuthScreen({ shoppingCount, onOpenShoppingList, onSessionChange }) {
         ? await signUp({ email, password, fullName })
         : await signIn({ email, password });
 
-      onSessionChange(nextSession);
+      await onSessionChange(nextSession);
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handlePasswordReset() {
+    setIsSubmitting(true);
+    setStatus("");
+
+    try {
+      await sendPasswordReset(email);
+      setStatus("Password reset email sent. Check your inbox.");
     } catch (error) {
       setStatus(error.message);
     } finally {
@@ -2271,7 +2324,9 @@ function AuthScreen({ shoppingCount, onOpenShoppingList, onSessionChange }) {
         secureTextEntry
         style={styles.formInput}
       />
-      <Text style={styles.forgotText}>Forgot Password?</Text>
+      <Pressable onPress={handlePasswordReset} disabled={isSubmitting}>
+        <Text style={styles.forgotText}>Forgot Password?</Text>
+      </Pressable>
       {status ? <Text style={styles.errorText}>{status}</Text> : null}
 
       <Pressable
@@ -2329,7 +2384,7 @@ function ProfileScreen({
 
     try {
       const updatedSession = await updateProfile({ session, fullName });
-      onSessionChange(updatedSession);
+      await onSessionChange(updatedSession);
       setStatus("Profile updated.");
     } catch (error) {
       setStatus(error.message);
@@ -2362,7 +2417,7 @@ function ProfileScreen({
 
       const avatarUrl = await uploadAvatar({ asset: result.assets[0], session });
       const updatedSession = await updateProfile({ avatarUrl, session, fullName });
-      onSessionChange(updatedSession);
+      await onSessionChange(updatedSession);
       setStatus("Profile photo updated.");
     } catch (error) {
       setStatus(error.message);

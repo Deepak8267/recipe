@@ -43,8 +43,15 @@ const onboardingStorageKey = "world-recipes-onboarding-complete";
 const shoppingListStorageKey = "world-recipes-shopping-list";
 const collectionsStorageKey = "world-recipes-collections";
 const cookingHistoryStorageKey = "world-recipes-cooking-history";
+const appSettingsStorageKey = "world-recipes-app-settings";
 const subscriptionStorageKey = "world-recipes-subscription-preview";
 const authSessionStorageKey = "world-recipes-auth-session";
+const defaultAppSettings = {
+  cookingReminders: true,
+  measurementUnit: "Metric",
+  premiumAlerts: true,
+  reduceMotion: false
+};
 
 export default function App() {
   const initialRecoveryToken = getRecoveryAccessToken();
@@ -66,6 +73,7 @@ export default function App() {
   const [shoppingItems, setShoppingItems] = useState([]);
   const [collections, setCollections] = useState([]);
   const [cookingHistory, setCookingHistory] = useState([]);
+  const [appSettings, setAppSettings] = useState(defaultAppSettings);
   const [favoritesMode, setFavoritesMode] = useState("recipes");
   const [recoveryToken, setRecoveryToken] = useState(initialRecoveryToken);
 
@@ -79,6 +87,7 @@ export default function App() {
     loadShoppingList();
     loadCollections();
     loadCookingHistory();
+    loadAppSettings();
   }, []);
 
   useEffect(() => {
@@ -202,6 +211,34 @@ export default function App() {
     } catch {
       // Cooking history still works in memory if storage is unavailable.
     }
+  }
+
+  async function loadAppSettings() {
+    try {
+      const storedSettings = await AsyncStorage.getItem(appSettingsStorageKey);
+      setAppSettings(
+        storedSettings ? { ...defaultAppSettings, ...JSON.parse(storedSettings) } : defaultAppSettings
+      );
+    } catch {
+      setAppSettings(defaultAppSettings);
+    }
+  }
+
+  async function saveAppSettings(nextSettings) {
+    setAppSettings(nextSettings);
+
+    try {
+      await AsyncStorage.setItem(appSettingsStorageKey, JSON.stringify(nextSettings));
+    } catch {
+      // Settings still work in memory if storage is unavailable.
+    }
+  }
+
+  function updateAppSetting(key, value) {
+    saveAppSettings({
+      ...appSettings,
+      [key]: value
+    });
   }
 
   async function restoreSavedSession() {
@@ -747,6 +784,18 @@ export default function App() {
         />
       ) : null}
 
+      {currentView === "settings" ? (
+        <SettingsScreen
+          settings={appSettings}
+          onReset={() => saveAppSettings(defaultAppSettings)}
+          onUpdateSetting={updateAppSetting}
+        />
+      ) : null}
+
+      {currentView === "support" ? (
+        <HelpSupportScreen session={session} />
+      ) : null}
+
       {currentView === "profile" ? (
         <ScrollView style={styles.lightScreen} showsVerticalScrollIndicator={false}>
           {session ? (
@@ -759,6 +808,8 @@ export default function App() {
               cookingMinutes={getTotalCookingMinutes(cookingHistory)}
               shoppingCount={shoppingItems.length}
               onOpenCookingHistory={() => setCurrentView("history")}
+              onOpenSettings={() => setCurrentView("settings")}
+              onOpenSupport={() => setCurrentView("support")}
               onOpenSubscription={openSubscription}
               onLogout={handleLogout}
               onOpenCollections={openCollections}
@@ -2392,6 +2443,167 @@ function CookingHistoryScreen({ history, onClear, onOpenRecipe }) {
   );
 }
 
+function SettingsScreen({ settings, onReset, onUpdateSetting }) {
+  return (
+    <ScrollView style={styles.lightScreen} showsVerticalScrollIndicator={false}>
+      <View style={styles.profileContainer}>
+        <View style={styles.historyHero}>
+          <Text style={styles.exploreEyebrow}>Settings</Text>
+          <Text style={styles.lightTitle}>App preferences</Text>
+          <Text style={styles.lightSubtitle}>
+            Control cooking reminders, recipe alerts, units, and motion.
+          </Text>
+        </View>
+
+        <View style={styles.menuPanel}>
+          <SettingToggle
+            label="Cooking reminders"
+            description="Show reminder-ready state for planned cooking."
+            active={settings.cookingReminders}
+            onPress={() => onUpdateSetting("cookingReminders", !settings.cookingReminders)}
+          />
+          <SettingToggle
+            label="Premium recipe alerts"
+            description="Highlight new premium dishes when you browse."
+            active={settings.premiumAlerts}
+            onPress={() => onUpdateSetting("premiumAlerts", !settings.premiumAlerts)}
+          />
+          <SettingToggle
+            label="Reduce motion"
+            description="Use calmer screen transitions and feed effects."
+            active={settings.reduceMotion}
+            onPress={() => onUpdateSetting("reduceMotion", !settings.reduceMotion)}
+          />
+        </View>
+
+        <View style={styles.panel}>
+          <Text style={styles.sectionTitle}>Measurement units</Text>
+          <Text style={styles.panelSubtitle}>Choose the default unit style for ingredients.</Text>
+          <View style={styles.segmentRow}>
+            {["Metric", "US"].map((unit) => (
+              <Pressable
+                key={unit}
+                onPress={() => onUpdateSetting("measurementUnit", unit)}
+                style={[
+                  styles.segmentPill,
+                  settings.measurementUnit === unit && styles.segmentPillActive
+                ]}
+              >
+                <Text
+                  style={
+                    settings.measurementUnit === unit
+                      ? styles.segmentTextActive
+                      : styles.segmentText
+                  }
+                >
+                  {unit}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        <Pressable onPress={onReset} style={styles.secondaryButton}>
+          <Text style={styles.secondaryButtonText}>Reset settings</Text>
+        </Pressable>
+        <View style={styles.bottomSpacer} />
+      </View>
+    </ScrollView>
+  );
+}
+
+function SettingToggle({ active, description, label, onPress }) {
+  return (
+    <Pressable onPress={onPress} style={styles.menuRow}>
+      <View style={styles.settingCopy}>
+        <Text style={styles.menuText}>{label}</Text>
+        <Text style={styles.menuSubtext}>{description}</Text>
+      </View>
+      <View style={[styles.toggleTrack, active && styles.toggleTrackActive]}>
+        <View style={[styles.toggleThumb, active && styles.toggleThumbActive]} />
+      </View>
+    </Pressable>
+  );
+}
+
+function HelpSupportScreen({ session }) {
+  const [message, setMessage] = useState("");
+  const [status, setStatus] = useState("");
+  const faqs = [
+    {
+      title: "Premium recipes are locked",
+      body: "Login first, then open Profile and activate the premium preview plan."
+    },
+    {
+      title: "Recipe image is not showing",
+      body: "Check that the admin image URL is public and starts with https."
+    },
+    {
+      title: "Password reset link opens wrong page",
+      body: "Send a fresh reset email from the same app link you are testing."
+    }
+  ];
+
+  function handleSendSupport() {
+    if (!message.trim()) {
+      setStatus("Write your support message first.");
+      return;
+    }
+
+    setMessage("");
+    setStatus("Support message saved. We will connect this to email before launch.");
+  }
+
+  return (
+    <ScrollView style={styles.lightScreen} showsVerticalScrollIndicator={false}>
+      <View style={styles.profileContainer}>
+        <View style={styles.historyHero}>
+          <Text style={styles.exploreEyebrow}>Help & Support</Text>
+          <Text style={styles.lightTitle}>How can we help?</Text>
+          <Text style={styles.lightSubtitle}>
+            Find quick answers or send a message about your account, recipes, or premium access.
+          </Text>
+        </View>
+
+        <View style={styles.panel}>
+          <Text style={styles.sectionTitle}>Contact support</Text>
+          <Text style={styles.panelSubtitle}>
+            {session ? session.user.email : "Login to include your account email automatically."}
+          </Text>
+          <TextInput
+            value={message}
+            onChangeText={setMessage}
+            multiline
+            placeholder="Describe the issue"
+            placeholderTextColor={colors.muted}
+            style={styles.supportInput}
+          />
+          {status ? (
+            <Text style={status.startsWith("Support") ? styles.successText : styles.errorText}>
+              {status}
+            </Text>
+          ) : null}
+          <Pressable onPress={handleSendSupport} style={styles.primaryButton}>
+            <Text style={styles.primaryButtonText}>Send message</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.panel}>
+          <Text style={styles.sectionTitle}>Quick answers</Text>
+          {faqs.map((faq) => (
+            <View key={faq.title} style={styles.faqItem}>
+              <Text style={styles.faqTitle}>{faq.title}</Text>
+              <Text style={styles.faqBody}>{faq.body}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.bottomSpacer} />
+      </View>
+    </ScrollView>
+  );
+}
+
 function formatHistoryDate(value) {
   const date = new Date(value);
 
@@ -2677,6 +2889,8 @@ function ProfileScreen({
   onLogout,
   onOpenCollections,
   onOpenCookingHistory,
+  onOpenSettings,
+  onOpenSupport,
   onOpenSubscription,
   onOpenShoppingList,
   onSessionChange
@@ -2867,14 +3081,20 @@ function ProfileScreen({
           </View>
           <Text style={styles.menuArrow}>{">"}</Text>
         </Pressable>
-        <View style={styles.menuRow}>
-          <Text style={styles.menuText}>Settings</Text>
+        <Pressable onPress={onOpenSettings} style={styles.menuRow}>
+          <View>
+            <Text style={styles.menuText}>Settings</Text>
+            <Text style={styles.menuSubtext}>Preferences and app controls</Text>
+          </View>
           <Text style={styles.menuArrow}>{">"}</Text>
-        </View>
-        <View style={styles.menuRow}>
-          <Text style={styles.menuText}>Help & Support</Text>
+        </Pressable>
+        <Pressable onPress={onOpenSupport} style={styles.menuRow}>
+          <View>
+            <Text style={styles.menuText}>Help & Support</Text>
+            <Text style={styles.menuSubtext}>FAQs and contact support</Text>
+          </View>
           <Text style={styles.menuArrow}>{">"}</Text>
-        </View>
+        </Pressable>
       </View>
       <View style={styles.bottomSpacer} />
     </View>
@@ -5227,6 +5447,61 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 12,
     fontWeight: "800",
+    marginTop: 5
+  },
+  settingCopy: {
+    flex: 1,
+    paddingRight: 12
+  },
+  toggleTrack: {
+    backgroundColor: colors.line,
+    borderRadius: 18,
+    height: 30,
+    justifyContent: "center",
+    paddingHorizontal: 3,
+    width: 54
+  },
+  toggleTrackActive: {
+    backgroundColor: colors.accent
+  },
+  toggleThumb: {
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    height: 24,
+    width: 24
+  },
+  toggleThumbActive: {
+    alignSelf: "flex-end"
+  },
+  supportInput: {
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 16,
+    borderWidth: 1,
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "700",
+    lineHeight: 21,
+    marginTop: 14,
+    minHeight: 120,
+    padding: 14,
+    textAlignVertical: "top"
+  },
+  faqItem: {
+    borderTopColor: colors.line,
+    borderTopWidth: 1,
+    paddingVertical: 14
+  },
+  faqTitle: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  faqBody: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 19,
     marginTop: 5
   },
   listSubtitle: {

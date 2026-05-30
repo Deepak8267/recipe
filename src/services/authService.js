@@ -40,7 +40,9 @@ export async function signUp({ email, password, fullName }) {
     throw new Error("Account created. Please login with your email and password.");
   }
 
-  return mapSession(data);
+  const session = mapSession(data);
+  await syncProfileRow(session);
+  return session;
 }
 
 export async function signIn({ email, password }) {
@@ -69,7 +71,9 @@ export async function signIn({ email, password }) {
     throw new Error(data.msg || data.error_description || "Login failed.");
   }
 
-  return mapSession(data);
+  const session = mapSession(data);
+  await syncProfileRow(session);
+  return session;
 }
 
 export async function updateProfile({ avatarUrl, session, fullName }) {
@@ -111,10 +115,13 @@ export async function updateProfile({ avatarUrl, session, fullName }) {
     throw new Error(data.msg || data.error_description || "Profile update failed.");
   }
 
-  return {
+  const updatedSession = {
     ...session,
     user: mapUser(data)
   };
+
+  await syncProfileRow(updatedSession);
+  return updatedSession;
 }
 
 export async function updateSubscriptionPreview({ isActive, session }) {
@@ -153,10 +160,13 @@ export async function updateSubscriptionPreview({ isActive, session }) {
     throw new Error(data.msg || data.error_description || "Subscription update failed.");
   }
 
-  return {
+  const updatedSession = {
     ...session,
     user: mapUser(data)
   };
+
+  await syncProfileRow(updatedSession);
+  return updatedSession;
 }
 
 export async function uploadAvatar({ asset, session }) {
@@ -239,6 +249,53 @@ function mapUser(user) {
       user.email?.split("@")[0] ||
       "Recipe Lover"
   };
+}
+
+async function syncProfileRow(session) {
+  if (!isSupabaseConfigured || !session || session.source === "local") {
+    return;
+  }
+
+  const profile = {
+    avatar_url: session.user.avatarUrl || null,
+    email: session.user.email,
+    full_name: session.user.fullName,
+    subscription_preview: Boolean(session.user.hasSubscriptionPreview),
+    updated_at: new Date().toISOString(),
+    user_id: session.user.id
+  };
+
+  try {
+    await upsertProfile(profile, session.accessToken);
+  } catch {
+    try {
+      await upsertProfile({
+        avatar_url: profile.avatar_url,
+        full_name: profile.full_name,
+        updated_at: profile.updated_at,
+        user_id: profile.user_id
+      }, session.accessToken);
+    } catch {
+      // Auth metadata remains the source of truth if the optional profile table is not ready.
+    }
+  }
+}
+
+async function upsertProfile(profile, accessToken) {
+  const response = await fetch(`${supabaseUrl}/rest/v1/profiles?on_conflict=user_id`, {
+    method: "POST",
+    headers: {
+      ...getSupabaseHeaders(),
+      Authorization: `Bearer ${accessToken}`,
+      Prefer: "resolution=merge-duplicates"
+    },
+    body: JSON.stringify(profile)
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || "Profile sync failed.");
+  }
 }
 
 function getFileExtension(value) {

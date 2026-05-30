@@ -1,5 +1,6 @@
 import { StatusBar } from "expo-status-bar";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as ImagePicker from "expo-image-picker";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -16,7 +17,7 @@ import {
   TextInput,
   View
 } from "react-native";
-import { signIn, signUp, updateProfile } from "./src/services/authService";
+import { signIn, signUp, updateProfile, uploadAvatar } from "./src/services/authService";
 import {
   getFavoriteIds,
   removeFavorite,
@@ -2292,6 +2293,7 @@ function ProfileScreen({
   const [fullName, setFullName] = useState(session.user.fullName);
   const [status, setStatus] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const displayName = session.user.fullName || "Food Lover";
 
   async function handleSave() {
@@ -2309,14 +2311,54 @@ function ProfileScreen({
     }
   }
 
+  async function handleChooseAvatar() {
+    setIsUploadingAvatar(true);
+    setStatus("");
+
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permission.granted) {
+        throw new Error("Allow photo access to upload a profile picture.");
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: true,
+        aspect: [1, 1],
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.82
+      });
+
+      if (result.canceled || !result.assets?.length) {
+        return;
+      }
+
+      const avatarUrl = await uploadAvatar({ asset: result.assets[0], session });
+      const updatedSession = await updateProfile({ avatarUrl, session, fullName });
+      onSessionChange(updatedSession);
+      setStatus("Profile photo updated.");
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  }
+
   return (
     <View style={styles.profileContainer}>
       <View style={styles.profileHero}>
         <View style={styles.profileHeroTop}>
           <View style={styles.profileAvatar}>
-            <Text style={styles.profileAvatarText}>
-              {displayName.slice(0, 1).toUpperCase()}
-            </Text>
+            {session.user.avatarUrl ? (
+              <Image
+                source={{ uri: session.user.avatarUrl }}
+                style={styles.profileAvatarImage}
+              />
+            ) : (
+              <Text style={styles.profileAvatarText}>
+                {displayName.slice(0, 1).toUpperCase()}
+              </Text>
+            )}
           </View>
           <View
             style={[
@@ -2336,6 +2378,15 @@ function ProfileScreen({
         </View>
         <Text style={styles.profileName}>{displayName}</Text>
         <Text style={styles.profileEmail}>{session.user.email}</Text>
+        <Pressable
+          onPress={handleChooseAvatar}
+          disabled={isUploadingAvatar}
+          style={[styles.avatarButton, isUploadingAvatar && styles.disabledButton]}
+        >
+          <Text style={styles.avatarButtonText}>
+            {isUploadingAvatar ? "Uploading..." : "Change profile photo"}
+          </Text>
+        </Pressable>
       </View>
       {favoriteError ? <Text style={styles.errorText}>{favoriteError}</Text> : null}
 
@@ -4358,11 +4409,30 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     height: 92,
     justifyContent: "center",
+    overflow: "hidden",
     width: 92
+  },
+  profileAvatarImage: {
+    height: "100%",
+    width: "100%"
   },
   profileAvatarText: {
     color: colors.accent,
     fontSize: 34,
+    fontWeight: "900"
+  },
+  avatarButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: colors.accentSoft,
+    borderRadius: 15,
+    marginTop: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10
+  },
+  avatarButtonText: {
+    color: colors.accent,
+    fontSize: 12,
     fontWeight: "900"
   },
   profileName: {

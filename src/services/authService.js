@@ -72,7 +72,7 @@ export async function signIn({ email, password }) {
   return mapSession(data);
 }
 
-export async function updateProfile({ session, fullName }) {
+export async function updateProfile({ avatarUrl, session, fullName }) {
   const cleanName = fullName.trim();
 
   if (!cleanName) {
@@ -84,6 +84,7 @@ export async function updateProfile({ session, fullName }) {
       ...session,
       user: {
         ...session.user,
+        avatarUrl: avatarUrl ?? session.user.avatarUrl,
         fullName: cleanName
       }
     };
@@ -97,6 +98,7 @@ export async function updateProfile({ session, fullName }) {
     },
     body: JSON.stringify({
       data: {
+        avatar_url: avatarUrl ?? session.user.avatarUrl ?? "",
         full_name: cleanName
       }
     })
@@ -114,6 +116,42 @@ export async function updateProfile({ session, fullName }) {
   };
 }
 
+export async function uploadAvatar({ asset, session }) {
+  if (!asset?.uri) {
+    throw new Error("Choose a profile photo first.");
+  }
+
+  if (!isSupabaseConfigured || session?.source === "local") {
+    return asset.uri;
+  }
+
+  const extension = getFileExtension(asset.fileName || asset.uri);
+  const filePath = `${session.user.id}/${Date.now()}.${extension}`;
+  const fileResponse = await fetch(asset.uri);
+  const fileBlob = await fileResponse.blob();
+  const contentType = asset.mimeType || fileBlob.type || "image/jpeg";
+  const uploadResponse = await fetch(
+    `${supabaseUrl}/storage/v1/object/avatars/${filePath}`,
+    {
+      method: "POST",
+      headers: {
+        apikey: getSupabaseHeaders().apikey,
+        Authorization: `Bearer ${session.accessToken}`,
+        "Content-Type": contentType,
+        "x-upsert": "true"
+      },
+      body: fileBlob
+    }
+  );
+
+  if (!uploadResponse.ok) {
+    const text = await uploadResponse.text();
+    throw new Error(text || "Profile photo upload failed.");
+  }
+
+  return `${supabaseUrl}/storage/v1/object/public/avatars/${filePath}`;
+}
+
 function createLocalSession(email, fullName) {
   return {
     accessToken: "local-demo-session",
@@ -121,7 +159,8 @@ function createLocalSession(email, fullName) {
     user: {
       id: "local-demo-user",
       email,
-      fullName
+      fullName,
+      avatarUrl: ""
     }
   };
 }
@@ -146,10 +185,17 @@ function mapUser(user) {
   return {
     id: user.id,
     email: user.email,
+    avatarUrl: user.user_metadata?.avatar_url || "",
     fullName:
       user.user_metadata?.full_name ||
       user.user_metadata?.name ||
       user.email?.split("@")[0] ||
       "Recipe Lover"
   };
+}
+
+function getFileExtension(value) {
+  const cleanValue = value.split("?")[0];
+  const extension = cleanValue.includes(".") ? cleanValue.split(".").pop() : "";
+  return extension && extension.length <= 5 ? extension.toLowerCase() : "jpg";
 }

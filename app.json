@@ -27,6 +27,14 @@
     },
     "web": {
       "favicon": "./assets/icon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow World Recipes to choose a profile photo."
+        }
+      ]
+    ]
   }
 }

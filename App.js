@@ -65,7 +65,6 @@ export default function App() {
     loadEntryStep();
     loadShoppingList();
     loadCollections();
-    loadSubscriptionPreview();
   }, []);
 
   useEffect(() => {
@@ -100,7 +99,7 @@ export default function App() {
       return;
     }
 
-    loadSubscriptionPreview();
+    setHasSubscription(false);
   }, [session]);
 
   async function loadRecipes() {
@@ -163,15 +162,6 @@ export default function App() {
       setCollections(storedCollections ? JSON.parse(storedCollections) : []);
     } catch {
       setCollections([]);
-    }
-  }
-
-  async function loadSubscriptionPreview() {
-    try {
-      const storedValue = await AsyncStorage.getItem(subscriptionStorageKey);
-      setHasSubscription(storedValue === "active");
-    } catch {
-      setHasSubscription(false);
     }
   }
 
@@ -279,6 +269,7 @@ export default function App() {
     () => recipes.filter((recipe) => recipe.isPremium),
     [recipes]
   );
+  const canAccessPremium = Boolean(session && hasSubscription);
 
   function changeView(view) {
     setActiveRecipe(null);
@@ -296,7 +287,7 @@ export default function App() {
   }
 
   function openRecipe(recipe) {
-    if (recipe.isPremium && !hasSubscription) {
+    if (recipe.isPremium && !canAccessPremium) {
       openSubscription();
       return;
     }
@@ -306,6 +297,7 @@ export default function App() {
 
   function handleLogout() {
     setSession(null);
+    setHasSubscription(false);
     setFavoriteIds([]);
     setCurrentView("home");
   }
@@ -535,7 +527,7 @@ export default function App() {
   if (currentView === "subscription") {
     return (
       <SubscriptionScreen
-        hasSubscription={hasSubscription}
+        hasSubscription={canAccessPremium}
         onBack={() => setCurrentView("home")}
         onPreviewChange={saveSubscriptionPreview}
       />
@@ -554,7 +546,7 @@ export default function App() {
         <HomeFeed
           favoriteError={favoriteError}
           favoriteIds={favoriteIds}
-          hasSubscription={hasSubscription}
+          hasSubscription={canAccessPremium}
           isLoading={isLoadingRecipes}
           recipeError={recipeError}
           recipes={filteredRecipes.length ? filteredRecipes : recipes}
@@ -617,7 +609,7 @@ export default function App() {
           {session ? (
             <ProfileScreen
               favoriteError={favoriteError}
-              hasSubscription={hasSubscription}
+              hasSubscription={canAccessPremium}
               session={session}
               savedRecipes={savedRecipes}
               collectionsCount={collections.length}

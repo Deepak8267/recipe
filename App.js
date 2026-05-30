@@ -2022,7 +2022,8 @@ function ReviewRow({ review }) {
 
 function CookingModeScreen({ recipe, onBack }) {
   const [stepIndex, setStepIndex] = useState(0);
-  const [timerSeconds, setTimerSeconds] = useState(8 * 60);
+  const recipeTimerSeconds = Math.max(1, recipe.timeMinutes || 8) * 60;
+  const [timerSeconds, setTimerSeconds] = useState(recipeTimerSeconds);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const steps = recipe.steps.length ? recipe.steps : ["Follow the recipe details."];
   const currentStep = steps[stepIndex];
@@ -2046,9 +2047,9 @@ function CookingModeScreen({ recipe, onBack }) {
   }, [isTimerRunning, timerSeconds]);
 
   useEffect(() => {
-    setTimerSeconds(8 * 60);
+    setTimerSeconds(recipeTimerSeconds);
     setIsTimerRunning(false);
-  }, [stepIndex]);
+  }, [recipeTimerSeconds, stepIndex]);
 
   function goPrevious() {
     setStepIndex((value) => Math.max(0, value - 1));
@@ -2087,7 +2088,7 @@ function CookingModeScreen({ recipe, onBack }) {
         <View style={styles.timerPanel}>
           <View style={styles.timerCircle}>
             <Text style={styles.timerText}>{timerText}</Text>
-            <Text style={styles.timerLabel}>Step timer</Text>
+            <Text style={styles.timerLabel}>Recipe timer</Text>
           </View>
           <View style={styles.timerActions}>
             <Pressable
@@ -2100,7 +2101,7 @@ function CookingModeScreen({ recipe, onBack }) {
             </Pressable>
             <Pressable
               onPress={() => {
-                setTimerSeconds(8 * 60);
+                setTimerSeconds(recipeTimerSeconds);
                 setIsTimerRunning(false);
               }}
               style={styles.secondaryButton}

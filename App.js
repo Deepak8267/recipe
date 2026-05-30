@@ -2585,7 +2585,11 @@ function SubscriptionScreen({ hasSubscription, onBack, onPreviewChange }) {
   return (
     <SafeAreaView style={styles.darkSafeArea}>
       <StatusBar style="light" />
-      <ScrollView style={styles.darkScreen} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.darkScreen}
+        contentContainerStyle={styles.paywallContent}
+        showsVerticalScrollIndicator={false}
+      >
         <Pressable onPress={onBack} style={styles.darkBackButton}>
           <Text style={styles.darkBackText}>Back to recipes</Text>
         </Pressable>
@@ -2888,7 +2892,8 @@ const styles = StyleSheet.create({
     flex: 1
   },
   darkSafeArea: {
-    backgroundColor: colors.dark
+    backgroundColor: colors.dark,
+    flex: 1
   },
   lightSafeArea: {
     backgroundColor: colors.cream,
@@ -4611,11 +4616,14 @@ const styles = StyleSheet.create({
     marginTop: 16,
     padding: 20
   },
+  paywallContent: {
+    paddingBottom: 34
+  },
   paywallTitle: {
     color: "#FFFFFF",
-    fontSize: 34,
+    fontSize: 30,
     fontWeight: "900",
-    lineHeight: 40,
+    lineHeight: 36,
     marginTop: 10
   },
   darkBackButton: {

@@ -42,6 +42,7 @@ const onboardingFallbackImage =
 const onboardingStorageKey = "world-recipes-onboarding-complete";
 const shoppingListStorageKey = "world-recipes-shopping-list";
 const collectionsStorageKey = "world-recipes-collections";
+const cookingHistoryStorageKey = "world-recipes-cooking-history";
 const subscriptionStorageKey = "world-recipes-subscription-preview";
 const authSessionStorageKey = "world-recipes-auth-session";
 
@@ -64,6 +65,7 @@ export default function App() {
   const [entryStep, setEntryStep] = useState(initialRecoveryLink ? "done" : "loading");
   const [shoppingItems, setShoppingItems] = useState([]);
   const [collections, setCollections] = useState([]);
+  const [cookingHistory, setCookingHistory] = useState([]);
   const [favoritesMode, setFavoritesMode] = useState("recipes");
   const [recoveryToken, setRecoveryToken] = useState(initialRecoveryToken);
 
@@ -76,6 +78,7 @@ export default function App() {
     }
     loadShoppingList();
     loadCollections();
+    loadCookingHistory();
   }, []);
 
   useEffect(() => {
@@ -179,6 +182,25 @@ export default function App() {
       setCollections(storedCollections ? JSON.parse(storedCollections) : []);
     } catch {
       setCollections([]);
+    }
+  }
+
+  async function loadCookingHistory() {
+    try {
+      const storedHistory = await AsyncStorage.getItem(cookingHistoryStorageKey);
+      setCookingHistory(storedHistory ? JSON.parse(storedHistory) : []);
+    } catch {
+      setCookingHistory([]);
+    }
+  }
+
+  async function saveCookingHistory(nextHistory) {
+    setCookingHistory(nextHistory);
+
+    try {
+      await AsyncStorage.setItem(cookingHistoryStorageKey, JSON.stringify(nextHistory));
+    } catch {
+      // Cooking history still works in memory if storage is unavailable.
     }
   }
 
@@ -446,6 +468,24 @@ export default function App() {
     saveShoppingItems(shoppingItems.filter((item) => !item.checked));
   }
 
+  function saveCookingSession(recipe) {
+    const nextSession = {
+      id: `${recipe.id}-${Date.now()}`,
+      cookedAt: new Date().toISOString(),
+      country: recipe.country,
+      image: recipe.image,
+      recipeId: recipe.id,
+      timeMinutes: recipe.timeMinutes || 0,
+      title: recipe.title
+    };
+
+    saveCookingHistory([nextSession, ...cookingHistory].slice(0, 30));
+  }
+
+  function clearCookingHistory() {
+    saveCookingHistory([]);
+  }
+
   function createCollection(name, initialRecipeId = "") {
     const cleanName = name.trim();
 
@@ -559,6 +599,10 @@ export default function App() {
       <CookingModeScreen
         recipe={cookingRecipe}
         onBack={() => setCookingRecipe(null)}
+        onFinish={() => {
+          saveCookingSession(cookingRecipe);
+          setCookingRecipe(null);
+        }}
       />
     );
   }
@@ -689,6 +733,20 @@ export default function App() {
         />
       ) : null}
 
+      {currentView === "history" ? (
+        <CookingHistoryScreen
+          history={cookingHistory}
+          onClear={clearCookingHistory}
+          onOpenRecipe={(recipeId) => {
+            const recipe = recipes.find((item) => item.id === recipeId);
+
+            if (recipe) {
+              openRecipe(recipe);
+            }
+          }}
+        />
+      ) : null}
+
       {currentView === "profile" ? (
         <ScrollView style={styles.lightScreen} showsVerticalScrollIndicator={false}>
           {session ? (
@@ -698,7 +756,9 @@ export default function App() {
               session={session}
               savedRecipes={savedRecipes}
               collectionsCount={collections.length}
+              cookingMinutes={getTotalCookingMinutes(cookingHistory)}
               shoppingCount={shoppingItems.length}
+              onOpenCookingHistory={() => setCurrentView("history")}
               onOpenSubscription={openSubscription}
               onLogout={handleLogout}
               onOpenCollections={openCollections}
@@ -818,6 +878,10 @@ function getAverageRating(reviews) {
 
   const total = reviews.reduce((sum, review) => sum + review.rating, 0);
   return total / reviews.length;
+}
+
+function getTotalCookingMinutes(history) {
+  return history.reduce((total, item) => total + (item.timeMinutes || 0), 0);
 }
 
 function OnboardingScreen({ images, onComplete, onSkip }) {
@@ -2157,7 +2221,7 @@ function ReviewRow({ review }) {
   );
 }
 
-function CookingModeScreen({ recipe, onBack }) {
+function CookingModeScreen({ recipe, onBack, onFinish }) {
   const [stepIndex, setStepIndex] = useState(0);
   const recipeTimerSeconds = Math.max(1, recipe.timeMinutes || 8) * 60;
   const [timerSeconds, setTimerSeconds] = useState(recipeTimerSeconds);
@@ -2256,7 +2320,7 @@ function CookingModeScreen({ recipe, onBack }) {
             <Text style={styles.secondaryButtonText}>Previous</Text>
           </Pressable>
           <Pressable
-            onPress={stepIndex === steps.length - 1 ? onBack : goNext}
+            onPress={stepIndex === steps.length - 1 ? onFinish : goNext}
             style={[
               styles.primaryButtonSmall,
               stepIndex === steps.length - 1 && styles.greenButton
@@ -2271,6 +2335,74 @@ function CookingModeScreen({ recipe, onBack }) {
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function CookingHistoryScreen({ history, onClear, onOpenRecipe }) {
+  const totalMinutes = getTotalCookingMinutes(history);
+
+  return (
+    <ScrollView style={styles.lightScreen} showsVerticalScrollIndicator={false}>
+      <View style={styles.profileContainer}>
+        <View style={styles.historyHero}>
+          <Text style={styles.exploreEyebrow}>Cooking History</Text>
+          <Text style={styles.lightTitle}>Your cooked recipes</Text>
+          <Text style={styles.lightSubtitle}>
+            Finished cooking sessions are saved here on this device.
+          </Text>
+          <View style={styles.statsRow}>
+            <StatTile value={history.length} label="Recipes Cooked" />
+            <StatTile value={totalMinutes} label="Minutes Cooked" />
+          </View>
+        </View>
+
+        {history.length ? (
+          <>
+            <Pressable onPress={onClear} style={styles.secondaryButton}>
+              <Text style={styles.secondaryButtonText}>Clear history</Text>
+            </Pressable>
+            {history.map((item) => (
+              <Pressable
+                key={item.id}
+                onPress={() => onOpenRecipe(item.recipeId)}
+                style={styles.historyRow}
+              >
+                <Image source={{ uri: item.image }} style={styles.historyImage} />
+                <View style={styles.historyCopy}>
+                  <Text style={styles.historyTitle}>{item.title}</Text>
+                  <Text style={styles.historyMeta}>
+                    {item.country} - {item.timeMinutes || 0} min - {formatHistoryDate(item.cookedAt)}
+                  </Text>
+                </View>
+                <Text style={styles.menuArrow}>{">"}</Text>
+              </Pressable>
+            ))}
+          </>
+        ) : (
+          <View style={styles.emptyPanel}>
+            <Text style={styles.emptyTitle}>No cooking history yet</Text>
+            <Text style={styles.emptyText}>
+              Open a recipe, tap Start Cooking, then finish the steps to save it here.
+            </Text>
+          </View>
+        )}
+
+        <View style={styles.bottomSpacer} />
+      </View>
+    </ScrollView>
+  );
+}
+
+function formatHistoryDate(value) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Recently";
+  }
+
+  return date.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short"
+  });
 }
 
 function AuthScreen({ shoppingCount, onOpenShoppingList, onSessionChange }) {
@@ -2540,9 +2672,11 @@ function ProfileScreen({
   savedRecipes,
   hasSubscription,
   collectionsCount,
+  cookingMinutes,
   shoppingCount,
   onLogout,
   onOpenCollections,
+  onOpenCookingHistory,
   onOpenSubscription,
   onOpenShoppingList,
   onSessionChange
@@ -2650,7 +2784,7 @@ function ProfileScreen({
       <View style={styles.statsRow}>
         <StatTile value={savedRecipes.length} label="Recipes Saved" />
         <StatTile value={collectionsCount} label="Collections" />
-        <StatTile value="2.4k" label="Minutes Cooked" />
+        <StatTile value={cookingMinutes} label="Minutes Cooked" />
       </View>
 
       <View style={styles.subscriptionPanel}>
@@ -2712,10 +2846,13 @@ function ProfileScreen({
       </View>
 
       <View style={styles.menuPanel}>
-        <View style={styles.menuRow}>
-          <Text style={styles.menuText}>Cooking History</Text>
+        <Pressable onPress={onOpenCookingHistory} style={styles.menuRow}>
+          <View>
+            <Text style={styles.menuText}>Cooking History</Text>
+            <Text style={styles.menuSubtext}>{cookingMinutes} cooking minutes</Text>
+          </View>
           <Text style={styles.menuArrow}>{">"}</Text>
-        </View>
+        </Pressable>
         <Pressable onPress={onOpenCollections} style={styles.menuRow}>
           <View>
             <Text style={styles.menuText}>My Collections</Text>
@@ -5049,6 +5186,48 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 20,
     fontWeight: "900"
+  },
+  historyHero: {
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 22,
+    borderWidth: 1,
+    marginBottom: 12,
+    padding: 16,
+    ...shadows.soft
+  },
+  historyRow: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.line,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 12,
+    padding: 12,
+    ...shadows.soft
+  },
+  historyImage: {
+    backgroundColor: colors.line,
+    borderRadius: 14,
+    height: 66,
+    width: 66
+  },
+  historyCopy: {
+    flex: 1
+  },
+  historyTitle: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "900",
+    lineHeight: 20
+  },
+  historyMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 5
   },
   listSubtitle: {
     color: colors.muted,

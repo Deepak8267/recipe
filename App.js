@@ -95,9 +95,12 @@ export default function App() {
   }, [session]);
 
   useEffect(() => {
-    if (session?.user?.hasSubscriptionPreview) {
-      setHasSubscription(true);
+    if (session) {
+      setHasSubscription(Boolean(session.user.hasSubscriptionPreview));
+      return;
     }
+
+    loadSubscriptionPreview();
   }, [session]);
 
   async function loadRecipes() {
@@ -173,26 +176,21 @@ export default function App() {
   }
 
   async function saveSubscriptionPreview(isActive) {
-    setHasSubscription(isActive);
+    if (!session) {
+      throw new Error("Login first to unlock premium.");
+    }
+
+    const updatedSession = await updateSubscriptionPreview({ isActive, session });
+    setSession(updatedSession);
+    setHasSubscription(Boolean(updatedSession.user.hasSubscriptionPreview));
 
     try {
       await AsyncStorage.setItem(
         subscriptionStorageKey,
-        isActive ? "active" : "inactive"
+        updatedSession.user.hasSubscriptionPreview ? "active" : "inactive"
       );
     } catch {
       // Premium preview still works in memory if storage is unavailable.
-    }
-
-    if (!session) {
-      return;
-    }
-
-    try {
-      const updatedSession = await updateSubscriptionPreview({ isActive, session });
-      setSession(updatedSession);
-    } catch {
-      // Local unlock stays active if profile metadata sync is temporarily unavailable.
     }
   }
 
@@ -2527,6 +2525,7 @@ function ProfileScreen({
 function SubscriptionScreen({ hasSubscription, onBack, onPreviewChange }) {
   const [selectedPlan, setSelectedPlan] = useState("yearly");
   const [status, setStatus] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
   const plans = [
     {
       id: "monthly",
@@ -2546,23 +2545,41 @@ function SubscriptionScreen({ hasSubscription, onBack, onPreviewChange }) {
   ];
   const activePlan = plans.find((plan) => plan.id === selectedPlan) || plans[0];
 
-  function handlePurchasePreview() {
-    onPreviewChange(true);
-    setStatus(`${activePlan.label} premium preview unlocked on this device.`);
+  async function handlePurchasePreview() {
+    setIsProcessing(true);
+    setStatus("");
+
+    try {
+      await onPreviewChange(true);
+      setStatus(`${activePlan.label} premium preview saved to your account.`);
+    } catch (error) {
+      setStatus(error.message || "Could not save premium to your account.");
+    } finally {
+      setIsProcessing(false);
+    }
   }
 
   function handleRestorePreview() {
     if (hasSubscription) {
-      setStatus("Premium preview is already active on this device.");
+      setStatus("Premium preview is active for this logged-in account.");
       return;
     }
 
-    setStatus("No test purchase found yet. Use unlock preview while RevenueCat is pending.");
+    setStatus("No premium preview found for this logged-in account.");
   }
 
-  function handleCancelPreview() {
-    onPreviewChange(false);
-    setStatus("Premium preview turned off for testing.");
+  async function handleCancelPreview() {
+    setIsProcessing(true);
+    setStatus("");
+
+    try {
+      await onPreviewChange(false);
+      setStatus("Premium preview turned off for this account.");
+    } catch (error) {
+      setStatus(error.message || "Could not update premium preview.");
+    } finally {
+      setIsProcessing(false);
+    }
   }
 
   return (
@@ -2640,18 +2657,31 @@ function SubscriptionScreen({ hasSubscription, onBack, onPreviewChange }) {
           <Benefit text="Recipes from every published country" />
           <Benefit text="New premium dishes as you add them from admin" />
           <Pressable
-            style={[styles.primaryButton, hasSubscription && styles.greenButton]}
+            disabled={isProcessing}
+            style={[
+              styles.primaryButton,
+              hasSubscription && styles.greenButton,
+              isProcessing && styles.disabledButton
+            ]}
             onPress={handlePurchasePreview}
           >
             <Text style={styles.primaryButtonText}>
-              {hasSubscription ? "Premium preview active" : `Unlock ${activePlan.label}`}
+              {isProcessing
+                ? "Saving..."
+                : hasSubscription
+                  ? "Premium preview active"
+                  : `Unlock ${activePlan.label}`}
             </Text>
           </Pressable>
           <Pressable onPress={handleRestorePreview} style={styles.paywallTextButton}>
             <Text style={styles.paywallTextButtonText}>Restore purchase</Text>
           </Pressable>
           {hasSubscription ? (
-            <Pressable onPress={handleCancelPreview} style={styles.paywallTextButton}>
+            <Pressable
+              disabled={isProcessing}
+              onPress={handleCancelPreview}
+              style={styles.paywallTextButton}
+            >
               <Text style={styles.paywallDangerText}>Turn off preview</Text>
             </Pressable>
           ) : null}

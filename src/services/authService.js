@@ -99,7 +99,8 @@ export async function updateProfile({ avatarUrl, session, fullName }) {
     body: JSON.stringify({
       data: {
         avatar_url: avatarUrl ?? session.user.avatarUrl ?? "",
-        full_name: cleanName
+        full_name: cleanName,
+        subscription_preview: Boolean(session.user.hasSubscriptionPreview)
       }
     })
   });
@@ -229,7 +230,9 @@ function mapUser(user) {
     id: user.id,
     email: user.email,
     avatarUrl: user.user_metadata?.avatar_url || "",
-    hasSubscriptionPreview: Boolean(user.user_metadata?.subscription_preview),
+    hasSubscriptionPreview:
+      user.user_metadata?.subscription_preview === true ||
+      user.user_metadata?.subscription_preview === "true",
     fullName:
       user.user_metadata?.full_name ||
       user.user_metadata?.name ||

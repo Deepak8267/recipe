@@ -46,32 +46,36 @@ const subscriptionStorageKey = "world-recipes-subscription-preview";
 const authSessionStorageKey = "world-recipes-auth-session";
 
 export default function App() {
+  const initialRecoveryToken = getRecoveryAccessToken();
+  const initialRecoveryLink = isPasswordRecoveryUrl();
   const [recipes, setRecipes] = useState([]);
   const [recipeError, setRecipeError] = useState(null);
   const [isLoadingRecipes, setIsLoadingRecipes] = useState(true);
   const [session, setSession] = useState(null);
   const [favoriteIds, setFavoriteIds] = useState([]);
   const [favoriteError, setFavoriteError] = useState(null);
-  const [currentView, setCurrentView] = useState("home");
+  const [currentView, setCurrentView] = useState(initialRecoveryLink ? "resetPassword" : "home");
   const [hasSubscription, setHasSubscription] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState("All");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [query, setQuery] = useState("");
   const [activeRecipe, setActiveRecipe] = useState(null);
   const [cookingRecipe, setCookingRecipe] = useState(null);
-  const [entryStep, setEntryStep] = useState("loading");
+  const [entryStep, setEntryStep] = useState(initialRecoveryLink ? "done" : "loading");
   const [shoppingItems, setShoppingItems] = useState([]);
   const [collections, setCollections] = useState([]);
   const [favoritesMode, setFavoritesMode] = useState("recipes");
-  const [recoveryToken, setRecoveryToken] = useState("");
+  const [recoveryToken, setRecoveryToken] = useState(initialRecoveryToken);
 
   useEffect(() => {
+    const isRecoveryLink = detectPasswordRecoveryLink();
     loadRecipes();
-    loadEntryStep();
+    if (!isRecoveryLink) {
+      loadEntryStep();
+      restoreSavedSession();
+    }
     loadShoppingList();
     loadCollections();
-    restoreSavedSession();
-    detectPasswordRecoveryLink();
   }, []);
 
   useEffect(() => {
@@ -125,6 +129,12 @@ export default function App() {
   }
 
   async function loadEntryStep() {
+    if (isPasswordRecoveryUrl()) {
+      setEntryStep("done");
+      setCurrentView("resetPassword");
+      return;
+    }
+
     try {
       const hasCompletedOnboarding = await AsyncStorage.getItem(onboardingStorageKey);
       setEntryStep(hasCompletedOnboarding === "true" ? "done" : "splash");
@@ -209,20 +219,20 @@ export default function App() {
 
   function detectPasswordRecoveryLink() {
     if (typeof window === "undefined") {
-      return;
+      return false;
     }
 
-    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-    const queryParams = new URLSearchParams(window.location.search);
-    const params = hashParams.get("access_token") ? hashParams : queryParams;
-    const accessToken = params.get("access_token");
-    const type = params.get("type");
+    const accessToken = getRecoveryAccessToken();
+    const isRecoveryLink = isPasswordRecoveryUrl();
 
-    if (accessToken && (!type || type === "recovery")) {
+    if (isRecoveryLink) {
       setRecoveryToken(accessToken);
       setCurrentView("resetPassword");
       setEntryStep("done");
+      return true;
     }
+
+    return false;
   }
 
   async function saveSubscriptionPreview(isActive) {
@@ -2403,6 +2413,39 @@ function getPasswordResetRedirectUrl() {
   return `${window.location.origin}/?resetPassword=true`;
 }
 
+function isPasswordRecoveryUrl() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const queryParams = new URLSearchParams(window.location.search);
+  const type = hashParams.get("type") || queryParams.get("type");
+
+  return (
+    queryParams.get("resetPassword") === "true" ||
+    type === "recovery" ||
+    Boolean(getRecoveryAccessToken())
+  );
+}
+
+function getRecoveryAccessToken() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const queryParams = new URLSearchParams(window.location.search);
+  const directToken = hashParams.get("access_token") || queryParams.get("access_token");
+
+  if (directToken) {
+    return directToken;
+  }
+
+  const match = window.location.href.match(/[?#&]access_token=([^&#]+)/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
 function ResetPasswordScreen({ recoveryToken, onDone }) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -2414,6 +2457,10 @@ function ResetPasswordScreen({ recoveryToken, onDone }) {
     setStatus("");
 
     try {
+      if (!recoveryToken) {
+        throw new Error("Reset token missing. Request a new password reset email from this app link.");
+      }
+
       if (password !== confirmPassword) {
         throw new Error("Passwords do not match.");
       }
@@ -2439,6 +2486,12 @@ function ResetPasswordScreen({ recoveryToken, onDone }) {
         <Text style={styles.lightSubtitle}>
           Enter a new password for your World Recipes account.
         </Text>
+        {!recoveryToken ? (
+          <Text style={styles.errorText}>
+            This reset link is missing the recovery token. Send a new reset email from the app,
+            then open the latest email link.
+          </Text>
+        ) : null}
         <TextInput
           value={password}
           onChangeText={setPassword}
@@ -2466,8 +2519,8 @@ function ResetPasswordScreen({ recoveryToken, onDone }) {
         ) : null}
         <Pressable
           onPress={handleUpdatePassword}
-          disabled={isSubmitting}
-          style={[styles.primaryButton, isSubmitting && styles.disabledButton]}
+          disabled={isSubmitting || !recoveryToken}
+          style={[styles.primaryButton, (isSubmitting || !recoveryToken) && styles.disabledButton]}
         >
           <Text style={styles.primaryButtonText}>
             {isSubmitting ? "Updating..." : "Update password"}

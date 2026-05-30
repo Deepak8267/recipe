@@ -212,11 +212,13 @@ export default function App() {
       return;
     }
 
-    const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const queryParams = new URLSearchParams(window.location.search);
+    const params = hashParams.get("access_token") ? hashParams : queryParams;
     const accessToken = params.get("access_token");
     const type = params.get("type");
 
-    if (accessToken && type === "recovery") {
+    if (accessToken && (!type || type === "recovery")) {
       setRecoveryToken(accessToken);
       setCurrentView("resetPassword");
       setEntryStep("done");
@@ -2398,7 +2400,7 @@ function getPasswordResetRedirectUrl() {
     return "";
   }
 
-  return window.location.origin;
+  return `${window.location.origin}/?resetPassword=true`;
 }
 
 function ResetPasswordScreen({ recoveryToken, onDone }) {

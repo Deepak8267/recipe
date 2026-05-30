@@ -116,6 +116,48 @@ export async function updateProfile({ avatarUrl, session, fullName }) {
   };
 }
 
+export async function updateSubscriptionPreview({ isActive, session }) {
+  if (!session) {
+    throw new Error("Login first to unlock premium.");
+  }
+
+  if (!isSupabaseConfigured || session?.source === "local") {
+    return {
+      ...session,
+      user: {
+        ...session.user,
+        hasSubscriptionPreview: isActive
+      }
+    };
+  }
+
+  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    method: "PUT",
+    headers: {
+      ...getSupabaseHeaders(),
+      Authorization: `Bearer ${session.accessToken}`
+    },
+    body: JSON.stringify({
+      data: {
+        avatar_url: session.user.avatarUrl ?? "",
+        full_name: session.user.fullName,
+        subscription_preview: isActive
+      }
+    })
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.msg || data.error_description || "Subscription update failed.");
+  }
+
+  return {
+    ...session,
+    user: mapUser(data)
+  };
+}
+
 export async function uploadAvatar({ asset, session }) {
   if (!asset?.uri) {
     throw new Error("Choose a profile photo first.");
@@ -160,7 +202,8 @@ function createLocalSession(email, fullName) {
       id: "local-demo-user",
       email,
       fullName,
-      avatarUrl: ""
+      avatarUrl: "",
+      hasSubscriptionPreview: false
     }
   };
 }
@@ -186,6 +229,7 @@ function mapUser(user) {
     id: user.id,
     email: user.email,
     avatarUrl: user.user_metadata?.avatar_url || "",
+    hasSubscriptionPreview: Boolean(user.user_metadata?.subscription_preview),
     fullName:
       user.user_metadata?.full_name ||
       user.user_metadata?.name ||

@@ -17,7 +17,13 @@ import {
   TextInput,
   View
 } from "react-native";
-import { signIn, signUp, updateProfile, uploadAvatar } from "./src/services/authService";
+import {
+  signIn,
+  signUp,
+  updateProfile,
+  updateSubscriptionPreview,
+  uploadAvatar
+} from "./src/services/authService";
 import {
   getFavoriteIds,
   removeFavorite,
@@ -86,6 +92,12 @@ export default function App() {
     return () => {
       mounted = false;
     };
+  }, [session]);
+
+  useEffect(() => {
+    if (session?.user?.hasSubscriptionPreview) {
+      setHasSubscription(true);
+    }
   }, [session]);
 
   async function loadRecipes() {
@@ -170,6 +182,17 @@ export default function App() {
       );
     } catch {
       // Premium preview still works in memory if storage is unavailable.
+    }
+
+    if (!session) {
+      return;
+    }
+
+    try {
+      const updatedSession = await updateSubscriptionPreview({ isActive, session });
+      setSession(updatedSession);
+    } catch {
+      // Local unlock stays active if profile metadata sync is temporarily unavailable.
     }
   }
 
@@ -873,6 +896,7 @@ function HomeFeed({
           recipe={item}
           recipeCount={recipes.length}
           query={query}
+          session={session}
           signedIn={Boolean(session)}
           totalRecipes={totalRecipes}
           onOpenExplore={onOpenExplore}
@@ -895,6 +919,7 @@ function FeedRecipeCard({
   recipe,
   recipeCount,
   query,
+  session,
   signedIn,
   totalRecipes,
   onOpenExplore,
@@ -904,6 +929,11 @@ function FeedRecipeCard({
   onQueryChange,
   onToggleFavorite
 }) {
+  const profileInitial =
+    session?.user?.fullName?.slice(0, 1).toUpperCase() ||
+    session?.user?.email?.slice(0, 1).toUpperCase() ||
+    "WR";
+
   return (
     <View style={styles.feedCardShell}>
       <ImageBackground
@@ -924,7 +954,14 @@ function FeedRecipeCard({
               <Text style={styles.notificationText}>Bell</Text>
             </Pressable>
             <Pressable onPress={onOpenProfile} style={styles.profileBubble}>
-              <Text style={styles.profileBubbleText}>WR</Text>
+              {session?.user?.avatarUrl ? (
+                <Image
+                  source={{ uri: session.user.avatarUrl }}
+                  style={styles.profileBubbleImage}
+                />
+              ) : (
+                <Text style={styles.profileBubbleText}>{profileInitial}</Text>
+              )}
             </Pressable>
           </View>
         </View>
@@ -3001,7 +3038,12 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     height: 40,
     justifyContent: "center",
+    overflow: "hidden",
     width: 40
+  },
+  profileBubbleImage: {
+    height: "100%",
+    width: "100%"
   },
   profileBubbleText: {
     color: "#FFFFFF",

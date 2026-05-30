@@ -106,7 +106,7 @@ export async function refreshSession(session) {
   return nextSession;
 }
 
-export async function sendPasswordReset(email) {
+export async function sendPasswordReset(email, redirectTo = "") {
   const cleanEmail = email.trim().toLowerCase();
 
   if (!cleanEmail) {
@@ -121,7 +121,8 @@ export async function sendPasswordReset(email) {
     method: "POST",
     headers: getSupabaseHeaders(),
     body: JSON.stringify({
-      email: cleanEmail
+      email: cleanEmail,
+      ...(redirectTo ? { redirect_to: redirectTo } : {})
     })
   });
 
@@ -130,6 +131,38 @@ export async function sendPasswordReset(email) {
 
   if (!response.ok) {
     throw new Error(data.msg || data.error_description || "Password reset failed.");
+  }
+}
+
+export async function updatePasswordWithRecovery({ accessToken, password }) {
+  if (!accessToken) {
+    throw new Error("Password reset link is missing a recovery token.");
+  }
+
+  if (password.length < localDemoPasswordLength) {
+    throw new Error("Enter a new password with 6 characters.");
+  }
+
+  if (!isSupabaseConfigured) {
+    return;
+  }
+
+  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    method: "PUT",
+    headers: {
+      ...getSupabaseHeaders(),
+      Authorization: `Bearer ${accessToken}`
+    },
+    body: JSON.stringify({
+      password
+    })
+  });
+
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : {};
+
+  if (!response.ok) {
+    throw new Error(data.msg || data.error_description || "Password update failed.");
   }
 }
 

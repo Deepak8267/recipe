@@ -23,6 +23,7 @@ import {
   signIn,
   signUp,
   updateProfile,
+  updatePasswordWithRecovery,
   updateSubscriptionPreview,
   uploadAvatar
 } from "./src/services/authService";
@@ -62,6 +63,7 @@ export default function App() {
   const [shoppingItems, setShoppingItems] = useState([]);
   const [collections, setCollections] = useState([]);
   const [favoritesMode, setFavoritesMode] = useState("recipes");
+  const [recoveryToken, setRecoveryToken] = useState("");
 
   useEffect(() => {
     loadRecipes();
@@ -69,6 +71,7 @@ export default function App() {
     loadShoppingList();
     loadCollections();
     restoreSavedSession();
+    detectPasswordRecoveryLink();
   }, []);
 
   useEffect(() => {
@@ -201,6 +204,22 @@ export default function App() {
       }
     } catch {
       // The app can still use the session in memory if device storage fails.
+    }
+  }
+
+  function detectPasswordRecoveryLink() {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const accessToken = params.get("access_token");
+    const type = params.get("type");
+
+    if (accessToken && type === "recovery") {
+      setRecoveryToken(accessToken);
+      setCurrentView("resetPassword");
+      setEntryStep("done");
     }
   }
 
@@ -570,6 +589,21 @@ export default function App() {
         onBack={() => setCurrentView("home")}
         onPreviewChange={saveSubscriptionPreview}
       />
+    );
+  }
+
+  if (currentView === "resetPassword") {
+    return (
+      <SafeAreaView style={styles.lightSafeArea}>
+        <StatusBar style="dark" />
+        <ResetPasswordScreen
+          recoveryToken={recoveryToken}
+          onDone={() => {
+            setRecoveryToken("");
+            setCurrentView("profile");
+          }}
+        />
+      </SafeAreaView>
     );
   }
 
@@ -2258,7 +2292,7 @@ function AuthScreen({ shoppingCount, onOpenShoppingList, onSessionChange }) {
     setStatus("");
 
     try {
-      await sendPasswordReset(email);
+      await sendPasswordReset(email, getPasswordResetRedirectUrl());
       setStatus("Password reset email sent. Check your inbox.");
     } catch (error) {
       setStatus(error.message);
@@ -2356,6 +2390,92 @@ function AuthScreen({ shoppingCount, onOpenShoppingList, onSessionChange }) {
         <Text style={styles.menuArrow}>{">"}</Text>
       </Pressable>
     </View>
+  );
+}
+
+function getPasswordResetRedirectUrl() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return window.location.origin;
+}
+
+function ResetPasswordScreen({ recoveryToken, onDone }) {
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [status, setStatus] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function handleUpdatePassword() {
+    setIsSubmitting(true);
+    setStatus("");
+
+    try {
+      if (password !== confirmPassword) {
+        throw new Error("Passwords do not match.");
+      }
+
+      await updatePasswordWithRecovery({ accessToken: recoveryToken, password });
+      setStatus("Password updated. Login with your new password.");
+
+      if (typeof window !== "undefined") {
+        window.history.replaceState(null, "", window.location.pathname);
+      }
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <ScrollView style={styles.lightScreen} showsVerticalScrollIndicator={false}>
+      <View style={styles.authContainer}>
+        <Text style={styles.exploreEyebrow}>Account recovery</Text>
+        <Text style={styles.lightTitle}>Create new password</Text>
+        <Text style={styles.lightSubtitle}>
+          Enter a new password for your World Recipes account.
+        </Text>
+        <TextInput
+          value={password}
+          onChangeText={setPassword}
+          placeholder="New password"
+          placeholderTextColor={colors.muted}
+          secureTextEntry
+          style={styles.formInput}
+        />
+        <TextInput
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+          placeholder="Confirm password"
+          placeholderTextColor={colors.muted}
+          secureTextEntry
+          style={styles.formInput}
+        />
+        {status ? (
+          <Text
+            style={
+              status.startsWith("Password updated") ? styles.successText : styles.errorText
+            }
+          >
+            {status}
+          </Text>
+        ) : null}
+        <Pressable
+          onPress={handleUpdatePassword}
+          disabled={isSubmitting}
+          style={[styles.primaryButton, isSubmitting && styles.disabledButton]}
+        >
+          <Text style={styles.primaryButtonText}>
+            {isSubmitting ? "Updating..." : "Update password"}
+          </Text>
+        </Pressable>
+        <Pressable onPress={onDone} style={styles.secondaryButton}>
+          <Text style={styles.secondaryButtonText}>Back to login</Text>
+        </Pressable>
+      </View>
+    </ScrollView>
   );
 }
 
